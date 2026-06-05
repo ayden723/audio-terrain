@@ -17,6 +17,7 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;          /* no pull-to-refresh / rubber-banding */
   background: var(--navy);
   color: var(--text);
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -30,6 +31,7 @@ html, body {
   width: 100%;
   height: 100%;
   display: block;
+  touch-action: none;                 /* touch drags the camera, not the page */
 }
 
 .hidden { display: none !important; }
@@ -315,4 +317,64 @@ html, body {
   border: none;
   border-radius: 50%;
   background: #fff;
+}
+
+/* ============================================================
+   Responsive / mobile  (portrait + landscape, with notch insets)
+   ============================================================ */
+
+/* Keep UI clear of notches & home indicators on all screens */
+#title     { top: max(28px, env(safe-area-inset-top)); left: max(32px, env(safe-area-inset-left)); }
+#transport { bottom: max(26px, env(safe-area-inset-bottom)); }
+
+/* ---- Narrow / portrait phones ---- */
+@media (max-width: 600px) {
+  #title { top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); }
+  #title h1 { font-size: 16px; letter-spacing: 0.16em; }
+  #title p  { font-size: 10px; }
+
+  .drop-inner { padding: 34px 26px; max-width: 86vw; }
+  .drop-inner .big { font-size: 17px; }
+
+  /* Transport wraps to two rows: [play | time | seek | time] then the
+     dropdowns + load button. (seek is flex:1 so it pushes them down.) */
+  #transport {
+    width: calc(100vw - 16px);
+    bottom: max(10px, env(safe-area-inset-bottom));
+    flex-wrap: wrap;
+    gap: 8px;
+    row-gap: 10px;
+    padding: 10px 12px;
+  }
+  .time { width: 32px; }
+  #mode, #palette { flex: 1 1 0; min-width: 0; font-size: 12px; padding: 0 8px; }
+
+  /* Print panel moves to a full-width strip below the title */
+  #print-panel {
+    top: 56px;
+    bottom: auto;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    padding: 12px 16px;
+  }
+  #print-panel .hint { display: none; }
+}
+
+/* ---- Short landscape phones ---- */
+@media (orientation: landscape) and (max-height: 500px) {
+  #title { top: max(8px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); }
+  #title h1 { font-size: 15px; }
+  #title p { display: none; }
+
+  #transport { bottom: max(8px, env(safe-area-inset-bottom)); padding: 8px 12px; gap: 10px; }
+
+  /* Keep the print panel on the right but let it scroll if it's tall */
+  #print-panel {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+  }
+  #print-panel .hint { display: none; }
 }

@@ -48,7 +48,13 @@ camera.position.set(150, 120, 200);
 const renderer = new THREE.WebGLRenderer({
   canvas, antialias: true, powerPreference: 'high-performance',
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Cap pixel ratio: 2 on desktop, 1.5 on phones (mobile GPUs + bloom).
+function pixelCap() {
+  const small = window.innerWidth < 768 ||
+    (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  return small ? 1.5 : 2;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelCap()));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; // filmic, graded colors
@@ -267,14 +273,17 @@ function formatTime(s) {
 }
 
 /* ---------- Resize ---------- */
-window.addEventListener('resize', () => {
+function onResize() {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelCap()));
   renderer.setSize(w, h);
   composer.setSize(w, h);
   bloom.setSize(w, h);
-});
+}
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', onResize);
 
 /* Sync app state to whatever the dropdowns currently show (covers the
    case where the browser restores previous selections after a reload). */
