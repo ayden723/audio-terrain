@@ -14,6 +14,7 @@ import { Terrain } from './terrain.js';
 import { Waterfall } from './waterfall.js';
 import { PrintModel } from './printmodel.js';
 import { createAtmosphere } from './atmosphere.js';
+import { imageToAudioBuffer, encodeWav } from './imagesynth.js';
 
 /* ---------- Grab UI elements ---------- */
 const canvas      = document.getElementById('scene');
@@ -35,6 +36,17 @@ const sizeVal     = document.getElementById('print-size-val');
 const smoothVal   = document.getElementById('print-smooth-val');
 const printDims   = document.getElementById('print-dims');
 const exportBtn   = document.getElementById('print-export');
+const imageInput  = document.getElementById('image-input');
+const imagePanel  = document.getElementById('image-panel');
+const imgDur      = document.getElementById('img-dur');
+const imgFreq     = document.getElementById('img-freq');
+const imgContrast = document.getElementById('img-contrast');
+const imgInvert   = document.getElementById('img-invert');
+const imgDurVal   = document.getElementById('img-dur-val');
+const imgFreqVal  = document.getElementById('img-freq-val');
+const imgContrastVal = document.getElementById('img-contrast-val');
+const imgRegen    = document.getElementById('img-regen');
+const imgDownload = document.getElementById('img-download');
 
 /* ---------- Three.js scene ---------- */
 const scene = new THREE.Scene();
@@ -110,6 +122,7 @@ const waterfall = new Waterfall(scene);
 const printModel = new PrintModel(scene);
 let hasTrack = false;
 let mode = 'landscape';  // 'landscape' | 'waterfall' | 'print'
+let imageFile = null;    // the uploaded image, if this track came from one
 
 audio.onEnded = () => {
   // In waterfall mode, loop seamlessly: keep the existing scroll going and
@@ -129,34 +142,75 @@ audio.onEnded = () => {
 };
 
 /* ---------- File loading ---------- */
+
+/* Shared finish step: once we have an AudioBuffer (from a real file OR a
+   synthesized image), build all three views and reveal the transport. */
+function buildFromBuffer(buffer, name) {
+  const spec = computeSpectrogram(buffer);
+  terrain.build(spec, buffer.duration);
+  waterfall.reset(audio.sampleRate, audio.analyser.frequencyBinCount);
+  printModel.build(spec, name);
+
+  hasTrack = true;
+  dropHint.classList.add('hidden');
+  hideStatus();
+  transport.classList.remove('hidden');
+  transport.classList.remove('playing');
+
+  seek.value = 0;
+  timeCurrent.textContent = formatTime(0);
+  timeTotal.textContent = formatTime(buffer.duration);
+
+  applyMode();
+}
+
 async function handleFile(file) {
   if (!file) return;
+  imageFile = null; // this track is real audio, not a generated image
   showStatus(`Decoding “${file.name}” …`);
   try {
     const buffer = await audio.load(file);
     showStatus('Building terrain …');
     await new Promise(r => setTimeout(r, 30)); // let the status paint
-
-    const spec = computeSpectrogram(buffer);
-    terrain.build(spec, buffer.duration);
-    waterfall.reset(audio.sampleRate, audio.analyser.frequencyBinCount);
-    printModel.build(spec, file.name);
-
-    hasTrack = true;
-    dropHint.classList.add('hidden');
-    hideStatus();
-    transport.classList.remove('hidden');
-    transport.classList.remove('playing');
-
-    seek.value = 0;
-    timeCurrent.textContent = formatTime(0);
-    timeTotal.textContent = formatTime(buffer.duration);
-
-    applyMode();
+    buildFromBuffer(buffer, file.name);
   } catch (err) {
     console.error(err);
     showStatus(`Could not load this file. ${err.message || ''}`, true);
   }
+}
+
+/* ---------- Image → audio ---------- */
+
+/* Read the current image-panel control values. */
+function imageParams() {
+  return {
+    duration: parseFloat(imgDur.value),
+    minFreq:  parseFloat(imgFreq.value),
+    contrast: parseFloat(imgContrast.value),
+    invert:   imgInvert.checked,
+  };
+}
+
+/* Turn the stored image into audio with the current params, then build
+   the views. Used by the first upload and by the Regenerate button. */
+async function generateFromImage() {
+  if (!imageFile) return;
+  showStatus('Generating sound from image …');
+  await new Promise(r => setTimeout(r, 30)); // let the status paint first
+  try {
+    const buffer = await imageToAudioBuffer(imageFile, audio.ctx, imageParams());
+    audio.setBuffer(buffer);
+    buildFromBuffer(buffer, imageFile.name);
+  } catch (err) {
+    console.error(err);
+    showStatus(`Could not generate audio. ${err.message || ''}`, true);
+  }
+}
+
+async function handleImage(file) {
+  if (!file) return;
+  imageFile = file;          // remember it so Regenerate can re-synthesize
+  await generateFromImage();
 }
 
 /* ---------- View / mode handling ---------- */
@@ -181,6 +235,9 @@ function applyMode() {
 
   if (mode === 'waterfall') waterfall.reset(); // start the live view fresh
   printPanel.classList.toggle('hidden', mode !== 'print');
+  // The image panel shares the top-right slot with the print panel, so only
+  // show it for image-made tracks when we're NOT in print mode.
+  imagePanel.classList.toggle('hidden', !imageFile || mode === 'print');
   if (mode === 'print') updatePrintReadout();
 
   const size = mode === 'waterfall' ? waterfall.size
@@ -239,9 +296,35 @@ smoothRange.addEventListener('input', () => {
 });
 exportBtn.addEventListener('click', () => printModel.exportSTL());
 
+/* Image-synth panel controls */
+imgDur.addEventListener('input', () => {
+  imgDurVal.textContent = `${parseFloat(imgDur.value).toFixed(1)} s`;
+});
+imgFreq.addEventListener('input', () => {
+  imgFreqVal.textContent = `${imgFreq.value} Hz`;
+});
+imgContrast.addEventListener('input', () => {
+  imgContrastVal.textContent = parseFloat(imgContrast.value).toFixed(1);
+});
+imgRegen.addEventListener('click', () => generateFromImage());
+imgDownload.addEventListener('click', () => {
+  if (!audio.buffer) return;
+  const blob = encodeWav(audio.buffer.getChannelData(0), audio.buffer.sampleRate);
+  const base = (imageFile?.name || 'audio-terrain').replace(/\.[^.]+$/, '');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${base}.wav`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+
 /* ---------- File inputs + drag & drop ---------- */
 fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
 fileInput2.addEventListener('change', e => handleFile(e.target.files[0]));
+imageInput.addEventListener('change', e => handleImage(e.target.files[0]));
 
 window.addEventListener('dragover', e => {
   e.preventDefault();
@@ -254,7 +337,9 @@ window.addEventListener('drop', e => {
   e.preventDefault();
   dropHint.classList.remove('dragover');
   const file = e.dataTransfer.files[0];
-  if (file) handleFile(file);
+  if (!file) return;
+  if (file.type.startsWith('image/')) handleImage(file);
+  else handleFile(file);
 });
 
 /* ---------- Status helpers ---------- */

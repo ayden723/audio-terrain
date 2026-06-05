@@ -43,6 +43,16 @@ export class AudioEngine {
     return this.buffer;
   }
 
+  /** Use an already-decoded AudioBuffer (e.g. one we synthesized from an
+      image) as the current track, just like a freshly loaded file. */
+  setBuffer(audioBuffer) {
+    this._stopSource();
+    this.buffer = audioBuffer;
+    this.offset = 0;
+    this.playing = false;
+    return this.buffer;
+  }
+
   get duration() {
     return this.buffer ? this.buffer.duration : 0;
   }

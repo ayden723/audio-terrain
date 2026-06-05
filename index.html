@@ -42,6 +42,14 @@
         <input type="file" id="file-input" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" hidden />
       </label>
       <p class="formats">WAV · MP3 · FLAC · M4A · OGG</p>
+
+      <p class="or-divider"><span>or</span></p>
+
+      <label class="upload-btn ghost">
+        Create from image
+        <input type="file" id="image-input" accept="image/*" hidden />
+      </label>
+      <p class="formats">turn a picture into sound</p>
     </div>
   </div>
 
@@ -65,6 +73,35 @@
 
     <p id="print-dims" class="dims"></p>
     <button id="print-export">Export STL</button>
+  </div>
+
+  <!-- Image-synth panel (shown after an image is turned into audio) -->
+  <div id="image-panel" class="hidden">
+    <h2>From image</h2>
+    <p class="hint">Tweak, then regenerate the sound from your picture.</p>
+
+    <label class="ctl">
+      <span>Duration <em id="img-dur-val">5.0 s</em></span>
+      <input type="range" id="img-dur" min="2" max="15" step="0.5" value="5" />
+    </label>
+
+    <label class="ctl">
+      <span>Min frequency <em id="img-freq-val">40 Hz</em></span>
+      <input type="range" id="img-freq" min="20" max="300" step="5" value="40" />
+    </label>
+
+    <label class="ctl">
+      <span>Contrast <em id="img-contrast-val">1.6</em></span>
+      <input type="range" id="img-contrast" min="0.5" max="3" step="0.1" value="1.6" />
+    </label>
+
+    <label class="ctl checkbox">
+      <input type="checkbox" id="img-invert" />
+      <span>Invert (dark = loud)</span>
+    </label>
+
+    <button id="img-regen">Regenerate</button>
+    <button id="img-download" class="secondary">Download audio (WAV)</button>
   </div>
 
   <!-- Transport bar (hidden until audio is ready) -->

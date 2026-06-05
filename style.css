@@ -191,8 +191,8 @@ html, body {
   text-align: center;
 }
 
-/* ---------- Print-model panel ---------- */
-#print-panel {
+/* ---------- Side panels (print model + image synth) ---------- */
+#print-panel, #image-panel {
   position: fixed;
   top: 90px;
   right: 28px;
@@ -206,7 +206,7 @@ html, body {
   border: 1px solid var(--border);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
-#print-panel h2 {
+#print-panel h2, #image-panel h2 {
   margin: 0 0 2px;
   font-size: 13px;
   font-weight: 600;
@@ -214,22 +214,22 @@ html, body {
   text-transform: uppercase;
   color: var(--text);
 }
-#print-panel .hint {
+#print-panel .hint, #image-panel .hint {
   margin: 0 0 16px;
   font-size: 11px;
   color: var(--muted);
   line-height: 1.4;
 }
-#print-panel .ctl { display: block; margin-bottom: 14px; }
-#print-panel .ctl > span {
+#print-panel .ctl, #image-panel .ctl { display: block; margin-bottom: 14px; }
+#print-panel .ctl > span, #image-panel .ctl > span {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
   color: var(--muted);
   margin-bottom: 6px;
 }
-#print-panel .ctl em { color: var(--text); font-style: normal; }
-#print-panel input[type="range"] {
+#print-panel .ctl em, #image-panel .ctl em { color: var(--text); font-style: normal; }
+#print-panel input[type="range"], #image-panel input[type="range"] {
   width: 100%;
   -webkit-appearance: none;
   appearance: none;
@@ -239,7 +239,8 @@ html, body {
   cursor: pointer;
   outline: none;
 }
-#print-panel input[type="range"]::-webkit-slider-thumb {
+#print-panel input[type="range"]::-webkit-slider-thumb,
+#image-panel input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 14px; height: 14px;
@@ -253,7 +254,8 @@ html, body {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-#print-export {
+#print-export,
+#image-panel button {
   width: 100%;
   padding: 11px;
   border: none;
@@ -266,9 +268,51 @@ html, body {
   transition: transform 0.18s ease, box-shadow 0.18s ease;
   box-shadow: 0 6px 24px rgba(79, 214, 224, 0.2);
 }
-#print-export:hover {
+#print-export:hover,
+#image-panel button:hover {
   transform: translateY(-1px);
   box-shadow: 0 10px 30px rgba(79, 214, 224, 0.3);
+}
+
+/* A checkbox row (Invert) */
+#image-panel .ctl.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+#image-panel .ctl.checkbox input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+#image-panel .ctl.checkbox span { font-size: 12px; color: var(--muted); margin: 0; }
+
+/* "Download audio" is a quieter, secondary button under "Regenerate" */
+#image-panel #img-download.secondary {
+  margin-top: 9px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+#image-panel #img-download.secondary:hover {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: none;
+}
+
+/* "or" divider + ghost upload button on the landing card */
+.or-divider {
+  margin: 20px 0 14px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.upload-btn.ghost {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+.upload-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: none;
 }
 
 /* Dropdowns (view mode + color mode) */
@@ -349,8 +393,8 @@ html, body {
   .time { width: 32px; }
   #mode, #palette { flex: 1 1 0; min-width: 0; font-size: 12px; padding: 0 8px; }
 
-  /* Print panel moves to a full-width strip below the title */
-  #print-panel {
+  /* Side panels move to a full-width strip below the title */
+  #print-panel, #image-panel {
     top: 56px;
     bottom: auto;
     left: 8px;
@@ -358,7 +402,7 @@ html, body {
     width: auto;
     padding: 12px 16px;
   }
-  #print-panel .hint { display: none; }
+  #print-panel .hint, #image-panel .hint { display: none; }
 }
 
 /* ---- Short landscape phones ---- */
@@ -369,12 +413,12 @@ html, body {
 
   #transport { bottom: max(8px, env(safe-area-inset-bottom)); padding: 8px 12px; gap: 10px; }
 
-  /* Keep the print panel on the right but let it scroll if it's tall */
-  #print-panel {
+  /* Keep the side panels on the right but let them scroll if tall */
+  #print-panel, #image-panel {
     top: max(8px, env(safe-area-inset-top));
     right: max(8px, env(safe-area-inset-right));
     max-height: calc(100% - 16px);
     overflow-y: auto;
   }
-  #print-panel .hint { display: none; }
+  #print-panel .hint, #image-panel .hint { display: none; }
 }
