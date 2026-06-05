@@ -18,6 +18,7 @@ import { imageToAudioBuffer, encodeWav } from './imagesynth.js';
 
 /* ---------- Grab UI elements ---------- */
 const canvas      = document.getElementById('scene');
+const titleEl     = document.getElementById('title');
 const dropHint    = document.getElementById('drop-hint');
 const statusEl    = document.getElementById('status');
 const transport   = document.getElementById('transport');
@@ -162,6 +163,32 @@ function buildFromBuffer(buffer, name) {
   timeTotal.textContent = formatTime(buffer.duration);
 
   applyMode();
+}
+
+/* Return to the landing screen so a new file/image can be loaded.
+   (Triggered by clicking the title.) */
+function resetToUpload() {
+  if (!hasTrack) return;
+  if (audio.playing) audio.pause();
+  audio.offset = 0;
+  hasTrack = false;
+  imageFile = null;
+
+  dropHint.classList.remove('hidden', 'dragover');
+  transport.classList.add('hidden');
+  transport.classList.remove('playing');
+  printPanel.classList.add('hidden');
+  imagePanel.classList.add('hidden');
+  hideStatus();
+
+  // Clear the inputs so picking the SAME file again still fires `change`.
+  fileInput.value = '';
+  fileInput2.value = '';
+  imageInput.value = '';
+
+  seek.value = 0;
+  timeCurrent.textContent = formatTime(0);
+  timeTotal.textContent = formatTime(0);
 }
 
 async function handleFile(file) {
@@ -320,6 +347,9 @@ imgDownload.addEventListener('click', () => {
   a.remove();
   URL.revokeObjectURL(url);
 });
+
+/* Click the title to go back to the upload screen and load something new */
+titleEl.addEventListener('click', resetToUpload);
 
 /* ---------- File inputs + drag & drop ---------- */
 fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
