@@ -1,0 +1,9 @@
+# Local dev helper (not needed for the deployed site)
+.claude/
+
+# Build artifacts / archives
+*.zip
+
+# OS cruft
+.DS_Store
+Thumbs.db
