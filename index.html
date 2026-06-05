@@ -35,6 +35,7 @@
   <!-- Drop / upload prompt (shown until a file is loaded) -->
   <div id="drop-hint">
     <div class="drop-inner">
+      <button class="panel-close" id="drop-close" aria-label="Close" title="Close">×</button>
       <p class="big">Drop an audio file here</p>
       <p class="small">or</p>
       <label class="upload-btn">
@@ -58,6 +59,7 @@
 
   <!-- Print-model panel (shown only in Print mode) -->
   <div id="print-panel" class="hidden">
+    <button class="panel-close" id="print-close" aria-label="Close" title="Close">×</button>
     <h2>Print model</h2>
     <p class="hint">A watertight relief tile, ready to slice &amp; print.</p>
 
@@ -77,6 +79,7 @@
 
   <!-- Image-synth panel (shown after an image is turned into audio) -->
   <div id="image-panel" class="hidden">
+    <button class="panel-close" id="image-close" aria-label="Close" title="Close">×</button>
     <h2>From image</h2>
     <p class="hint">Tweak, then regenerate the sound from your picture.</p>
 

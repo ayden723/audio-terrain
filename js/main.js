@@ -48,6 +48,9 @@ const imgFreqVal  = document.getElementById('img-freq-val');
 const imgContrastVal = document.getElementById('img-contrast-val');
 const imgRegen    = document.getElementById('img-regen');
 const imgDownload = document.getElementById('img-download');
+const dropClose   = document.getElementById('drop-close');
+const printClose  = document.getElementById('print-close');
+const imageClose  = document.getElementById('image-close');
 
 /* ---------- Three.js scene ---------- */
 const scene = new THREE.Scene();
@@ -124,6 +127,8 @@ const printModel = new PrintModel(scene);
 let hasTrack = false;
 let mode = 'landscape';  // 'landscape' | 'waterfall' | 'print'
 let imageFile = null;    // the uploaded image, if this track came from one
+let imagePanelClosed = false; // user dismissed the image panel with its X
+let printPanelClosed = false; // user dismissed the print panel with its X
 
 audio.onEnded = () => {
   // In waterfall mode, loop seamlessly: keep the existing scroll going and
@@ -147,6 +152,8 @@ audio.onEnded = () => {
 /* Shared finish step: once we have an AudioBuffer (from a real file OR a
    synthesized image), build all three views and reveal the transport. */
 function buildFromBuffer(buffer, name) {
+  imagePanelClosed = false; // a fresh track shows its panel again
+  printPanelClosed = false;
   const spec = computeSpectrogram(buffer);
   terrain.build(spec, buffer.duration);
   waterfall.reset(audio.sampleRate, audio.analyser.frequencyBinCount);
@@ -261,10 +268,11 @@ function applyMode() {
   printModel.setVisible(mode === 'print');
 
   if (mode === 'waterfall') waterfall.reset(); // start the live view fresh
-  printPanel.classList.toggle('hidden', mode !== 'print');
+  printPanel.classList.toggle('hidden', mode !== 'print' || printPanelClosed);
   // The image panel shares the top-right slot with the print panel, so only
-  // show it for image-made tracks when we're NOT in print mode.
-  imagePanel.classList.toggle('hidden', !imageFile || mode === 'print');
+  // show it for image-made tracks when we're NOT in print mode (and not
+  // dismissed by the user).
+  imagePanel.classList.toggle('hidden', !imageFile || mode === 'print' || imagePanelClosed);
   if (mode === 'print') updatePrintReadout();
 
   const size = mode === 'waterfall' ? waterfall.size
@@ -284,6 +292,9 @@ function updatePrintReadout() {
 
 modeSel.addEventListener('change', () => {
   mode = modeSel.value;
+  // Switching views brings a dismissed panel back for the new view.
+  imagePanelClosed = false;
+  printPanelClosed = false;
   applyMode();
 });
 
@@ -348,8 +359,26 @@ imgDownload.addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
-/* Click the title to go back to the upload screen and load something new */
-titleEl.addEventListener('click', resetToUpload);
+/* Click the title to go back to the upload screen and load something new.
+   (If a track is loaded we reset; if the upload card was just dismissed,
+   we simply bring it back.) */
+titleEl.addEventListener('click', () => {
+  if (hasTrack) resetToUpload();
+  else dropHint.classList.remove('hidden');
+});
+
+/* Panel close (X) buttons — hide a panel to see the spectrogram. The
+   settings panels reappear when you switch view mode; the upload card
+   reappears when you click the title. */
+dropClose.addEventListener('click', () => dropHint.classList.add('hidden'));
+imageClose.addEventListener('click', () => {
+  imagePanelClosed = true;
+  imagePanel.classList.add('hidden');
+});
+printClose.addEventListener('click', () => {
+  printPanelClosed = true;
+  printPanel.classList.add('hidden');
+});
 
 /* ---------- File inputs + drag & drop ---------- */
 fileInput.addEventListener('change', e => handleFile(e.target.files[0]));

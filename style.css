@@ -81,6 +81,7 @@ html, body {
   transform: scale(1.02);
 }
 .drop-inner {
+  position: relative;
   text-align: center;
   padding: 54px 72px;
   border: 1.5px dashed var(--border);
@@ -260,7 +261,7 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 #print-export,
-#image-panel button {
+#image-panel button:not(.panel-close) {
   width: 100%;
   padding: 11px;
   border: none;
@@ -274,10 +275,31 @@ html, body {
   box-shadow: 0 6px 24px rgba(79, 214, 224, 0.2);
 }
 #print-export:hover,
-#image-panel button:hover {
+#image-panel button:not(.panel-close):hover {
   transform: translateY(-1px);
   box-shadow: 0 10px 30px rgba(79, 214, 224, 0.3);
 }
+
+/* Small X to dismiss a panel / the upload card (reveals the spectrogram) */
+.panel-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.panel-close:hover { background: rgba(255, 255, 255, 0.16); color: var(--text); }
 
 /* A checkbox row (Invert) */
 #image-panel .ctl.checkbox {
