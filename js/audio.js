@@ -30,6 +30,18 @@ export class AudioEngine {
     this.playing = false;
 
     this.onEnded = null;    // callback when track finishes naturally
+
+    this._playThroughSilentSwitch();
+  }
+
+  /* iOS routes Web Audio to the "ambient" category by default, which is
+     muted by the hardware silent switch. Requesting the "playback" category
+     makes sound play even in silent mode, like a normal media app.
+     Supported on iOS 16.4+ Safari; a no-op (and harmless) elsewhere. */
+  _playThroughSilentSwitch() {
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch (_) { /* older browsers: leave default behavior */ }
   }
 
   /** Decode a File / Blob into an AudioBuffer. Returns the buffer. */
@@ -69,6 +81,7 @@ export class AudioEngine {
 
   play() {
     if (!this.buffer || this.playing) return;
+    this._playThroughSilentSwitch(); // re-assert on the user gesture
     if (this.ctx.state === 'suspended') this.ctx.resume();
 
     // A BufferSource is single-use, so we make a fresh one each time.
