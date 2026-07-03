@@ -1,4 +1,15 @@
-# Audio Terrain
+# Sound Lab
+
+A playground of audio-visual tools. The home page (`index.html`) is a
+coolors-style grid of tool cards; each tool lives in its own folder.
+
+| Tool | Folder | Status |
+|------|--------|--------|
+| Audio Terrain | `terrain/` | live |
+| Vector Scope (XY oscilloscope) | — | planned |
+| Hear the Earth (terrain → sound) | — | planned |
+
+## Audio Terrain
 
 Upload an audio file and explore it as a 3D landscape sculpted from sound.
 
@@ -56,6 +67,7 @@ manifold (genus-0) mesh — so it prints base-down with no supports.
 ## How it's built
 
 No build step, no framework — just HTML, CSS, and a few small JS modules.
+All paths below live inside `terrain/`.
 
 | File | Job |
 |------|-----|
