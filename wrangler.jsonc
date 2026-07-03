@@ -1,0 +1,10 @@
+{
+  // Cloudflare Workers config — this is a static-assets-only site.
+  // The Workers Builds deploy command (`npx wrangler versions upload`)
+  // reads this to know what to upload.
+  "name": "audio-terrain",
+  "compatibility_date": "2026-07-01",
+  "assets": {
+    "directory": "./"
+  }
+}

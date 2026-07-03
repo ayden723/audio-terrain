@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+
+  <!-- Security: only run our own scripts/styles, no outside connections,
+       no framing. Locks the page down even against injected content. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-7m0J8k5nQZpdK1H/gzYiOHOtB0JGwHYdZg0DoX51+uE='; style-src 'self'; img-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+
+  <title>Audio Terrain</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Import map lets us use `import ... from 'three'` with no build step.
+       Both files are vendored locally so the app works fully offline. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- The 3D scene is drawn here -->
+  <canvas id="scene"></canvas>
+
+  <!-- Title -->
+  <header id="title">
+    <h1 title="Back to upload">Audio&nbsp;Terrain</h1>
+    <p>a landscape sculpted from sound</p>
+  </header>
+
+  <!-- Drop / upload prompt (shown until a file is loaded) -->
+  <div id="drop-hint">
+    <div class="drop-inner">
+      <button class="panel-close" id="drop-close" aria-label="Close" title="Close">×</button>
+      <p class="big">Drop an audio file here</p>
+      <p class="small">or</p>
+      <label class="upload-btn">
+        Choose a file
+        <input type="file" id="file-input" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" hidden />
+      </label>
+      <p class="formats">WAV · MP3 · FLAC · M4A · OGG</p>
+
+      <p class="or-divider"><span>or</span></p>
+
+      <label class="upload-btn ghost">
+        Create from image
+        <input type="file" id="image-input" accept="image/*" hidden />
+      </label>
+      <p class="formats">turn a picture into sound</p>
+    </div>
+  </div>
+
+  <!-- Status line (loading / errors) -->
+  <div id="status" class="hidden"></div>
+
+  <!-- Print-model panel (shown only in Print mode) -->
+  <div id="print-panel" class="hidden">
+    <button class="panel-close" id="print-close" aria-label="Close" title="Close">×</button>
+    <h2>Print model</h2>
+    <p class="hint">A watertight relief tile, ready to slice &amp; print.</p>
+
+    <label class="ctl">
+      <span>Size <em id="print-size-val">120 mm</em></span>
+      <input type="range" id="print-size" min="60" max="200" step="5" value="120" />
+    </label>
+
+    <label class="ctl">
+      <span>Smoothing <em id="print-smooth-val">1</em></span>
+      <input type="range" id="print-smooth" min="0" max="5" step="1" value="1" />
+    </label>
+
+    <p id="print-dims" class="dims"></p>
+    <button id="print-export">Export STL</button>
+  </div>
+
+  <!-- Image-synth panel (shown after an image is turned into audio) -->
+  <div id="image-panel" class="hidden">
+    <button class="panel-close" id="image-close" aria-label="Close" title="Close">×</button>
+    <h2>From image</h2>
+    <p class="hint">Tweak, then regenerate the sound from your picture.</p>
+
+    <label class="ctl">
+      <span>Duration <em id="img-dur-val">5.0 s</em></span>
+      <input type="range" id="img-dur" min="2" max="15" step="0.5" value="5" />
+    </label>
+
+    <label class="ctl">
+      <span>Min frequency <em id="img-freq-val">40 Hz</em></span>
+      <input type="range" id="img-freq" min="20" max="300" step="5" value="40" />
+    </label>
+
+    <label class="ctl">
+      <span>Contrast <em id="img-contrast-val">1.6</em></span>
+      <input type="range" id="img-contrast" min="0.5" max="3" step="0.1" value="1.6" />
+    </label>
+
+    <label class="ctl checkbox">
+      <input type="checkbox" id="img-invert" />
+      <span>Invert (dark = loud)</span>
+    </label>
+
+    <button id="img-regen">Regenerate</button>
+    <button id="img-download" class="secondary">Download audio (WAV)</button>
+  </div>
+
+  <!-- Transport bar (hidden until audio is ready) -->
+  <footer id="transport" class="hidden">
+    <button id="play-btn" aria-label="Play / pause" title="Play / pause">
+      <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg class="icon-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+    </button>
+    <span id="time-current" class="time">0:00</span>
+    <input type="range" id="seek" min="0" max="1000" value="0" step="1" />
+    <span id="time-total" class="time">0:00</span>
+    <select id="mode" title="View mode" aria-label="View mode">
+      <option value="landscape">Landscape</option>
+      <option value="waterfall">Waterfall</option>
+      <option value="print">Print model</option>
+    </select>
+    <select id="palette" title="Color mode" aria-label="Color mode">
+      <option value="aurora">Aurora</option>
+      <option value="magma">Magma</option>
+      <option value="ice">Ice</option>
+      <option value="ember">Ember</option>
+      <option value="moonlight">Moonlight</option>
+    </select>
+    <label class="new-file" title="Load a different file">
+      <svg viewBox="0 0 24 24"><path d="M19 13v6H5v-6H3v8h18v-8zM11 4v8.17l-3.59-3.58L6 10l6 6 6-6-1.41-1.41L13 12.17V4z"/></svg>
+      <input type="file" id="file-input-2" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" hidden />
+    </label>
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

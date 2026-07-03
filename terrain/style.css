@@ -116,7 +116,7 @@ html, body {
   font-size: 14px;
   font-weight: 500;
   color: var(--navy);
-  background: linear-gradient(120deg, var(--accent), #ffe27a);
+  background: var(--accent);
   transition: transform 0.18s ease, box-shadow 0.18s ease;
   box-shadow: 0 6px 24px rgba(79, 214, 224, 0.25);
 }
@@ -270,7 +270,7 @@ html, body {
   font-weight: 500;
   color: var(--navy);
   cursor: pointer;
-  background: linear-gradient(120deg, var(--accent), #ffe27a);
+  background: var(--accent);
   transition: transform 0.18s ease, box-shadow 0.18s ease;
   box-shadow: 0 6px 24px rgba(79, 214, 224, 0.2);
 }

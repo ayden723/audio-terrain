@@ -1,0 +1,234 @@
+/* ============================================================
+   Sound Lab — home shell
+   Design language: coolors.co-style tool cards.
+   Flat colors only — no gradients anywhere.
+   ============================================================ */
+
+:root {
+  --ink:   #14151a;   /* near-black text */
+  --paper: #ffffff;   /* page background */
+  --muted: #6d7078;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ==========================================
+   TOP BAR
+========================================== */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  padding: 1.6rem 2rem;
+}
+
+.wordmark {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* ==========================================
+   HERO
+========================================== */
+
+.hero {
+  padding: 4.5rem 2rem 0;
+  text-align: center;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(3rem, 6vw, 5.2rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.hero p {
+  margin: 1.2rem 0 0;
+  font-size: 1.35rem;
+  color: var(--muted);
+}
+
+/* ==========================================
+   TOOLS SECTION
+========================================== */
+
+.tools-section {
+  padding: 6rem 2rem;
+}
+
+.tools-grid {
+  max-width: 1700px;
+  margin: 0 auto;
+
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+}
+
+/* ==========================================
+   CARD
+========================================== */
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+
+  min-height: 420px;
+
+  padding: 3rem;
+
+  border-radius: 28px;
+
+  text-decoration: none;
+
+  transition:
+    transform .25s ease,
+    box-shadow .25s ease,
+    background-color .25s ease,
+    filter .25s ease;
+}
+
+.tool-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .08);
+  filter: saturate(1.05);
+}
+
+.tool-card h2 {
+  margin: 0;
+
+  font-size: clamp(3rem, 4vw, 4.4rem);
+  font-weight: 800;
+  line-height: .9;
+  letter-spacing: -.04em;
+}
+
+.tool-card p {
+  margin-top: 2rem;
+
+  max-width: 75%;
+
+  font-size: 1.55rem;
+  line-height: 1.35;
+  font-weight: 400;
+}
+
+.tool-footer {
+  margin-top: auto;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding-top: 3rem;
+
+  font-size: .95rem;
+  font-weight: 700;
+
+  letter-spacing: .12em;
+
+  text-transform: uppercase;
+}
+
+.arrow {
+  font-size: 2rem;
+
+  transition: transform .25s ease;
+}
+
+.tool-card:hover .arrow {
+  transform: translateX(6px);
+}
+
+/* Coming-soon cards: same look, quieter behavior */
+.tool-card.soon {
+  cursor: default;
+  opacity: .82;
+}
+
+.tool-card.soon:hover {
+  transform: none;
+  box-shadow: none;
+  filter: none;
+}
+
+/* ==========================================
+   COLORS  (flat — no purple, no gradients)
+========================================== */
+
+.cyan {
+  background: #dff7f7;
+  color: #0087b5;
+}
+
+.blue {
+  background: #dfe8fb;
+  color: #2e63ff;
+}
+
+.sand {
+  background: #fdf1dd;
+  color: #b06e00;
+}
+
+/* ==========================================
+   FOOTER
+========================================== */
+
+.site-footer {
+  padding: 0 2rem 3rem;
+  text-align: center;
+}
+
+.site-footer p {
+  margin: 0;
+  font-size: .95rem;
+  color: var(--muted);
+}
+
+/* ==========================================
+   RESPONSIVE
+========================================== */
+
+@media (max-width: 1100px) {
+
+  .tools-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+}
+
+@media (max-width: 700px) {
+
+  .hero { padding-top: 3rem; }
+
+  .tools-section {
+    padding: 3.5rem 1.25rem;
+  }
+
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tool-card {
+    min-height: 360px;
+    padding: 2.25rem;
+  }
+
+  .tool-card p {
+    max-width: 100%;
+    font-size: 1.3rem;
+  }
+
+}
