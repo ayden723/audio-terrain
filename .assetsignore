@@ -1,0 +1,7 @@
+# Files that should never be uploaded as site assets
+.git
+.gitignore
+.claude
+.assetsignore
+wrangler.jsonc
+README.md
