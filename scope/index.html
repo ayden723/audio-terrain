@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+
+  <!-- Security: only run our own scripts/styles, no outside connections. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+
+  <title>Vector Scope - Sound Labs</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0b0d'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23fff'/%3E%3Crect x='7' y='3' width='2' height='10' fill='%23fff'/%3E%3Crect x='11' y='5' width='2' height='6' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css?v=6" />
+  <link rel="stylesheet" href="../shared/knob.css?v=6" />
+</head>
+<body>
+  <!-- The scope is drawn here -->
+  <canvas id="scene"></canvas>
+
+  <!-- Brand card: click anywhere on it to go home -->
+  <a id="brand" href="../" title="Back to Sound Labs">Sound&nbsp;Labs<span>by ayden</span></a>
+
+  <!-- Tool name and what it does -->
+  <div id="tool-tag">
+    <strong>Vector Scope</strong>
+    <span>stereo sound drawn as curves</span>
+  </div>
+
+  <!-- Drop / upload prompt (shown until a file is loaded) -->
+  <div id="drop-hint">
+    <div class="drop-inner">
+      <button class="panel-close" id="drop-close" aria-label="Back to Sound Labs" title="Back to Sound Labs">×</button>
+      <p class="big">Drop an audio file here</p>
+      <p class="small">The left channel draws sideways, the right channel draws up and down.</p>
+      <label class="upload-btn">
+        Choose a file
+        <input type="file" id="file-input" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" hidden />
+      </label>
+      <p class="formats">WAV · MP3 · FLAC · M4A · OGG</p>
+
+      <p class="or-divider"><span>or</span></p>
+
+      <button class="upload-btn ghost" id="synth-open">Draw with oscillators</button>
+      <p class="formats">two tones draw shapes, no file needed</p>
+    </div>
+  </div>
+
+  <!-- Status line (loading / errors) -->
+  <div id="status" class="hidden"></div>
+
+  <!-- One control deck: scope on top, oscillators below -->
+  <div id="deck" class="hidden">
+    <button class="panel-close" id="deck-close" aria-label="Close" title="Close">×</button>
+
+    <h2>Scope</h2>
+    <div class="deck-grid">
+      <label class="ctl">
+        <span>Zoom <em id="zoom-val">1.0×</em></span>
+        <input type="range" id="zoom" min="0.25" max="3" step="0.25" value="1" />
+      </label>
+
+      <label class="ctl">
+        <span>Framesize <em id="frame-val">1024</em></span>
+        <input type="range" id="framesize" min="64" max="3072" step="64" value="1024" />
+      </label>
+
+      <label class="ctl">
+        <span>Trail <em id="trail-val">60%</em></span>
+        <input type="range" id="trail" min="0" max="95" step="5" value="60" />
+      </label>
+
+      <label class="ctl">
+        <span>Line width <em id="width-val">2</em></span>
+        <input type="range" id="linewidth" min="1" max="8" step="1" value="2" />
+      </label>
+    </div>
+
+    <div class="deck-row">
+      <label class="ctl">
+        <span>Style</span>
+        <select id="drawstyle">
+          <option value="strip">Line strip</option>
+          <option value="lines">Lines</option>
+          <option value="points">Points</option>
+          <option value="triangles">Triangles</option>
+        </select>
+      </label>
+
+      <label class="ctl">
+        <span>Trace</span>
+        <select id="trace-color">
+          <option value="#4fd6e0">Cyan</option>
+          <option value="#7cff9b">Phosphor</option>
+          <option value="#ffffff">White</option>
+          <option value="#ffb347">Amber</option>
+        </select>
+      </label>
+    </div>
+
+    <h2>Oscillators</h2>
+    <p class="hint">Two tones step through a pattern. The shape jumps on every beat.</p>
+
+    <div class="deck-grid">
+      <label class="ctl">
+        <span>Note <em id="freq-val">220 Hz</em></span>
+        <input type="range" id="freq" min="40" max="880" step="10" value="220" />
+      </label>
+
+      <label class="ctl">
+        <span>Speed <em id="speed-val">3 /s</em></span>
+        <input type="range" id="speed" min="1" max="8" step="1" value="3" />
+      </label>
+
+      <label class="ctl">
+        <span>Volume <em id="vol-val">20%</em></span>
+        <input type="range" id="volume" min="0" max="60" step="5" value="20" />
+      </label>
+
+      <label class="ctl">
+        <span>Pattern</span>
+        <select id="pattern">
+          <option value="orbits" selected>Orbits</option>
+          <option value="melody">Melody</option>
+          <option value="bounce">Bounce</option>
+          <option value="random">Random</option>
+        </select>
+      </label>
+    </div>
+
+    <button id="synth-toggle">Start oscillators</button>
+  </div>
+
+  <!-- Transport bar (file mode only) -->
+  <footer id="transport" class="hidden">
+    <button id="play-btn" aria-label="Play / pause" title="Play / pause">
+      <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg class="icon-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+    </button>
+    <span id="time-current" class="time">0:00</span>
+    <input type="range" id="seek" min="0" max="1000" value="0" step="1" />
+    <span id="time-total" class="time">0:00</span>
+    <label class="new-file" title="Load a different file">
+      <svg viewBox="0 0 24 24"><path d="M19 13v6H5v-6H3v8h18v-8zM11 4v8.17l-3.59-3.58L6 10l6 6 6-6-1.41-1.41L13 12.17V4z"/></svg>
+      <input type="file" id="file-input-2" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" hidden />
+    </label>
+  </footer>
+
+  <script type="module" src="js/main.js?v=6"></script>
+  <script type="module" src="../shared/knob.js?v=6"></script>
+</body>
+</html>

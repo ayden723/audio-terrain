@@ -18,7 +18,6 @@ import { imageToAudioBuffer, encodeWav } from './imagesynth.js';
 
 /* ---------- Grab UI elements ---------- */
 const canvas      = document.getElementById('scene');
-const titleEl     = document.getElementById('title');
 const dropHint    = document.getElementById('drop-hint');
 const statusEl    = document.getElementById('status');
 const transport   = document.getElementById('transport');
@@ -51,6 +50,7 @@ const imgDownload = document.getElementById('img-download');
 const dropClose   = document.getElementById('drop-close');
 const printClose  = document.getElementById('print-close');
 const imageClose  = document.getElementById('image-close');
+const flyBtn      = document.getElementById('fly-btn');
 
 /* ---------- Three.js scene ---------- */
 const scene = new THREE.Scene();
@@ -248,8 +248,11 @@ async function handleImage(file) {
 }
 
 /* ---------- View / mode handling ---------- */
+let viewSpan = 300;   // remembered for the fly-mode camera path
+
 function frameView(size) {
   const span = Math.max(size.WIDTH, size.DEPTH);
+  viewSpan = span;
   camera.position.set(span * 0.32, Math.max(140, span * 0.34), span * 0.78 + 120);
   camera.far = span * 4 + 1500;
   camera.updateProjectionMatrix();
@@ -359,18 +362,10 @@ imgDownload.addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
-/* Click the title to go back to the upload screen and load something new.
-   (If a track is loaded we reset; if the upload card was just dismissed,
-   we simply bring it back.) */
-titleEl.addEventListener('click', () => {
-  if (hasTrack) resetToUpload();
-  else dropHint.classList.remove('hidden');
-});
-
 /* Panel close (X) buttons — hide a panel to see the spectrogram. The
    settings panels reappear when you switch view mode; the upload card
    reappears when you click the title. */
-dropClose.addEventListener('click', () => dropHint.classList.add('hidden'));
+dropClose.addEventListener('click', () => { location.href = '../'; });
 imageClose.addEventListener('click', () => {
   imagePanelClosed = true;
   imagePanel.classList.add('hidden');
@@ -379,6 +374,29 @@ printClose.addEventListener('click', () => {
   printPanelClosed = true;
   printPanel.classList.add('hidden');
 });
+
+/* ---------- Fly mode: an automatic camera flight over the terrain ----------
+   Click the paper plane to soar; grab the scene (or click again) to land. */
+let flying = false;
+let flyT = 0;
+
+function setFly(on) {
+  flying = on;
+  flyBtn.classList.toggle('active', on);
+  controls.enabled = !on;
+  if (!on) {
+    // Hand control back to OrbitControls from wherever the flight ended.
+    controls.target.set(0, 12, 0);
+    controls.update();
+  }
+}
+
+flyBtn.addEventListener('click', () => {
+  if (!hasTrack) return;
+  setFly(!flying);
+});
+
+canvas.addEventListener('pointerdown', () => { if (flying) setFly(false); });
 
 /* ---------- File inputs + drag & drop ---------- */
 fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
@@ -435,10 +453,54 @@ mode = modeSel.value || 'landscape';
 terrain.setPalette(paletteSel.value);
 waterfall.setPalette(paletteSel.value);
 
+/* ---------- Arriving from Hear the Earth? ----------
+   The map tool parks its generated WAV in IndexedDB and sends the
+   browser here with ?from=earth. Pick it up and load it like a file. */
+(async function checkHandoff() {
+  if (new URLSearchParams(location.search).get('from') !== 'earth') return;
+  try {
+    const blob = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('soundlab', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('handoff');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const tx = req.result.transaction('handoff', 'readwrite');
+        const get = tx.objectStore('handoff').get('earth-audio');
+        get.onsuccess = () => {
+          tx.objectStore('handoff').delete('earth-audio');
+          resolve(get.result);
+        };
+        get.onerror = () => reject(get.error);
+      };
+    });
+    if (blob) handleFile(new File([blob], 'hear-the-earth.wav', { type: 'audio/wav' }));
+  } catch (err) {
+    console.error('handoff from Hear the Earth failed:', err);
+  }
+})();
+
 /* ---------- Render loop ---------- */
 function animate() {
   requestAnimationFrame(animate);
-  controls.update();
+  if (flying) {
+    // A slow banking orbit with a gentle altitude bob, gaze wandering
+    // a little ahead of the flight — a lazy helicopter shot.
+    flyT += 0.0022;
+    const a = flyT;
+    const r = viewSpan * 0.62 + 60;
+    camera.position.set(
+      Math.cos(a) * r,
+      viewSpan * 0.22 + 50 + Math.sin(a * 2.3) * viewSpan * 0.07,
+      Math.sin(a) * r * 0.85
+    );
+    camera.lookAt(
+      Math.cos(a + 2.0) * viewSpan * 0.12,
+      12,
+      Math.sin(a + 1.3) * viewSpan * 0.12
+    );
+  } else {
+    controls.update();
+  }
   atmosphere.update();
 
   if (hasTrack && audio.playing) {

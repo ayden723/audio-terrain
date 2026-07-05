@@ -4,17 +4,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-  <!-- Security: the home page runs no scripts at all. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <!-- Security: only our own script (the background shader) and styles. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'" />
 
-  <title>Sound Lab — play with sound</title>
-  <link rel="stylesheet" href="home.css" />
+  <title>Sound Labs by ayden</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0b0d'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23fff'/%3E%3Crect x='7' y='3' width='2' height='10' fill='%23fff'/%3E%3Crect x='11' y='5' width='2' height='6' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="home.css?v=11" />
 </head>
 <body>
 
+  <!-- Animated black & white background -->
+  <canvas id="bg-canvas" aria-hidden="true"></canvas>
+
   <!-- Top bar -->
   <header class="topbar">
-    <span class="wordmark">Sound&nbsp;Lab</span>
+    <span class="wordmark">Sound&nbsp;Labs <span class="by">by ayden</span></span>
   </header>
 
   <!-- Hero -->
@@ -27,10 +31,10 @@
   <section class="tools-section">
     <div class="tools-grid">
 
-      <a href="terrain/" class="tool-card cyan">
+      <a href="terrain/" class="tool-card tile-terrain">
         <h2>Audio<br>Terrain</h2>
         <p>
-          Turn any song into a 3D landscape you can fly over and 3D-print —
+          Turn any song into a 3D landscape. Fly over it, print it,
           or draw a picture and hear it as sound.
         </p>
         <div class="tool-footer">
@@ -39,27 +43,29 @@
         </div>
       </a>
 
-      <div class="tool-card blue soon">
+      <a href="scope/" class="tool-card tile-scope">
         <h2>Vector<br>Scope</h2>
         <p>
-          Watch stereo sound draw glowing curves in real time — the classic
-          XY oscilloscope, reborn.
+          See your music as moving curves. The left and right channels
+          draw the shape together.
         </p>
         <div class="tool-footer">
-          <span>Coming soon</span>
+          <span>Launch the scope</span>
+          <span class="arrow">&rarr;</span>
         </div>
-      </div>
+      </a>
 
-      <div class="tool-card sand soon">
+      <a href="earth/" class="tool-card tile-earth">
         <h2>Hear the<br>Earth</h2>
         <p>
-          Pick any place on the globe and listen to its mountains and
-          valleys as music.
+          Pick a place on the map and listen to its mountains
+          and valleys.
         </p>
         <div class="tool-footer">
-          <span>Coming soon</span>
+          <span>Listen to the land</span>
+          <span class="arrow">&rarr;</span>
         </div>
-      </div>
+      </a>
 
     </div>
   </section>
@@ -68,5 +74,6 @@
     <p>Everything runs in your browser. Your audio never leaves your machine.</p>
   </footer>
 
+  <script src="bg.js?v=10"></script>
 </body>
 </html>
