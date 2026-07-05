@@ -6,8 +6,8 @@ coolors-style grid of tool cards; each tool lives in its own folder.
 | Tool | Folder | Status |
 |------|--------|--------|
 | Audio Terrain | `terrain/` | live |
-| Vector Scope (XY oscilloscope) | — | planned |
-| Hear the Earth (terrain → sound) | — | planned |
+| Vector Scope (XY oscilloscope + lissajous synth) | `scope/` | live |
+| Hear the Earth (real elevation → sound) | `earth/` | live |
 
 ## Audio Terrain
 

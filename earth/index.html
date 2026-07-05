@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+
+  <!-- Security: our own code plus exactly two outside services —
+       CARTO basemap tiles (pictures of the map) and the AWS open
+       elevation tiles (the height data we sonify). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com https://s3.amazonaws.com https://server.arcgisonline.com; connect-src 'self' https://s3.amazonaws.com; media-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+
+  <title>Hear the Earth - Sound Labs</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0b0d'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23fff'/%3E%3Crect x='7' y='3' width='2' height='10' fill='%23fff'/%3E%3Crect x='11' y='5' width='2' height='6' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <link rel="stylesheet" href="style.css?v=5" />
+</head>
+<body>
+  <!-- The world map fills the window -->
+  <div id="map"></div>
+
+  <!-- Sweeping playback line over the map -->
+  <div id="playhead" class="hidden"></div>
+
+  <!-- Brand card: click anywhere on it to go home -->
+  <a id="brand" href="../" title="Back to Sound Labs">Sound&nbsp;Labs<span>by ayden</span></a>
+
+  <!-- Tool name and what it does -->
+  <div id="tool-tag">
+    <strong>Hear the Earth</strong>
+    <span>real mountains turned into sound</span>
+  </div>
+
+  <!-- Status line -->
+  <div id="status" class="hidden"></div>
+
+  <!-- Control panel -->
+  <div id="scan-panel">
+    <h2>Terrain</h2>
+    <p class="hint">Move the map to some mountains, then scan. The north edge plays high notes. Playback sweeps west to east.</p>
+
+    <button id="scan-btn">Scan this view</button>
+
+    <div id="result" class="hidden">
+      <canvas id="preview" width="228" height="120"></canvas>
+      <p id="elev-stats" class="stats"></p>
+
+      <label class="ctl">
+        <span>Duration <em id="dur-val">12 s</em></span>
+        <input type="range" id="duration" min="4" max="30" step="2" value="12" />
+      </label>
+
+      <label class="ctl">
+        <span>Low note <em id="lowf-val">60 Hz</em></span>
+        <input type="range" id="lowfreq" min="40" max="300" step="20" value="60" />
+      </label>
+
+      <label class="ctl">
+        <span>Contrast <em id="contrast-val">1.5</em></span>
+        <input type="range" id="contrast" min="0.5" max="3" step="0.25" value="1.5" />
+      </label>
+
+      <label class="ctl checkbox">
+        <input type="checkbox" id="sea-silent" checked />
+        <span>Ocean stays silent</span>
+      </label>
+
+      <button id="play-btn">Play the terrain</button>
+      <button id="explore-btn" class="secondary">Explore in Audio Terrain</button>
+      <button id="download-btn" class="secondary">Download audio (WAV)</button>
+    </div>
+  </div>
+
+  <script src="vendor/leaflet.js"></script>
+  <script type="module" src="js/main.js?v=5"></script>
+</body>
+</html>

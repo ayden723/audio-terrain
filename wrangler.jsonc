@@ -1,7 +1,12 @@
 {
-  // Cloudflare Workers config — this is a static-assets-only site.
-  // The Workers Builds deploy command (`npx wrangler versions upload`)
-  // reads this to know what to upload.
+  // Cloudflare Workers config for this static-assets-only site.
+  // Everything in the repo root (minus .assetsignore entries) is served
+  // as static files; there is no server-side Worker code.
+  //
+  // IMPORTANT: in the Cloudflare dashboard, Workers Builds > Settings, the
+  // "Deploy command" must be:   npx wrangler deploy
+  // (NOT `wrangler versions upload` — that uploads a version but never
+  //  promotes it to production, so the live site never changes.)
   "name": "audio-terrain",
   "compatibility_date": "2026-07-01",
   "assets": {

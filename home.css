@@ -1,24 +1,44 @@
 /* ============================================================
    Sound Lab — home shell
-   Design language: coolors.co-style tool cards.
-   Flat colors only — no gradients anywhere.
+   coolors.co-style layout, monochrome theme: an animated black &
+   white background behind matte-gray tool cards. Flat colors only,
+   no gradients anywhere.
    ============================================================ */
 
 :root {
-  --ink:   #14151a;   /* near-black text */
-  --paper: #ffffff;   /* page background */
-  --muted: #6d7078;
+  --bg:    #0b0b0d;   /* dark page, and the shader's fallback */
+  --ink:   #ededf0;   /* light text on the dark background */
+  --muted: #9a9aa2;
 }
 
 * { box-sizing: border-box; }
 
+/* Fallback color lives on <html> only. <body> stays transparent so the
+   fixed background canvas behind it is actually visible (an opaque body
+   background was painting right over it). */
+html { background: var(--bg); }
+
 html, body {
   margin: 0;
-  background: var(--paper);
   color: var(--ink);
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+body { background: transparent; }
+
+/* The animation sits behind the page content. */
+#bg-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  display: block;
+  opacity: 0.45;
+  pointer-events: none;
+}
+/* Everything except the canvas rides above it. */
+.topbar, .hero, .tools-section, .site-footer { position: relative; z-index: 1; }
 
 /* ==========================================
    TOP BAR
@@ -31,9 +51,21 @@ html, body {
 }
 
 .wordmark {
+  display: inline-block;
+  padding: 8px 15px;
   font-size: 1.15rem;
   font-weight: 800;
   letter-spacing: -0.02em;
+  background: rgba(12, 12, 16, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.wordmark .by {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #a9a9b2;
 }
 
 /* ==========================================
@@ -51,12 +83,24 @@ html, body {
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.04em;
+  color: #ffffff;
+  /* crisp dark outline (sticker look) + a soft drop for depth */
+  text-shadow:
+    -1.5px -1.5px 0 #0b0b0d, 1.5px -1.5px 0 #0b0b0d,
+    -1.5px  1.5px 0 #0b0b0d, 1.5px  1.5px 0 #0b0b0d,
+    0 3px 0 rgba(0, 0, 0, 0.5), 0 8px 34px rgba(0, 0, 0, 0.9);
 }
 
 .hero p {
   margin: 1.2rem 0 0;
-  font-size: 1.35rem;
-  color: var(--muted);
+  font-size: 1.4rem;
+  font-weight: 500;
+  color: #FFC078;                 /* warm amber — pops off the grey pattern */
+  /* tight dark outline so it reads over black and white areas alike */
+  text-shadow:
+    -1px -1px 0 #0b0b0d, 1px -1px 0 #0b0b0d,
+    -1px  1px 0 #0b0b0d, 1px  1px 0 #0b0b0d,
+    0 4px 18px rgba(0, 0, 0, 0.9);
 }
 
 /* ==========================================
@@ -91,18 +135,18 @@ html, body {
   border-radius: 28px;
 
   text-decoration: none;
+  color: #1a1512;          /* dark text; each tile sets its own shade */
 
   transition:
     transform .25s ease,
     box-shadow .25s ease,
-    background-color .25s ease,
     filter .25s ease;
 }
 
 .tool-card:hover {
   transform: translateY(-6px);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .08);
-  filter: saturate(1.05);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  filter: brightness(1.12);
 }
 
 .tool-card h2 {
@@ -122,6 +166,8 @@ html, body {
   font-size: 1.55rem;
   line-height: 1.35;
   font-weight: 400;
+  color: inherit;          /* same hue as the tile, softened below */
+  opacity: 0.78;
 }
 
 .tool-footer {
@@ -151,36 +197,14 @@ html, body {
   transform: translateX(6px);
 }
 
-/* Coming-soon cards: same look, quieter behavior */
-.tool-card.soon {
-  cursor: default;
-  opacity: .82;
-}
-
-.tool-card.soon:hover {
-  transform: none;
-  box-shadow: none;
-  filter: none;
-}
-
 /* ==========================================
-   COLORS  (flat — no purple, no gradients)
+   COLORS — flat color tiles (no gradients)
+   Scheme: Coolors. Each tile matches its tool's accent.
 ========================================== */
 
-.cyan {
-  background: #dff7f7;
-  color: #0087b5;
-}
-
-.blue {
-  background: #dfe8fb;
-  color: #2e63ff;
-}
-
-.sand {
-  background: #fdf1dd;
-  color: #b06e00;
-}
+.tile-terrain { background: #C25A22; color: #ffe4d2; }  /* deep orange */
+.tile-scope   { background: #9C3563; color: #ffd9e8; }  /* deep magenta */
+.tile-earth   { background: #17705B; color: #cffae8; }  /* deep teal */
 
 /* ==========================================
    FOOTER
@@ -191,10 +215,42 @@ html, body {
   text-align: center;
 }
 
+/* Frosted pill so the fine print reads clearly over the moving pattern */
 .site-footer p {
+  display: inline-block;
   margin: 0;
+  padding: 11px 20px;
   font-size: .95rem;
-  color: var(--muted);
+  color: #e8e8ee;
+  background: rgba(12, 12, 16, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* ==========================================
+   ENTRANCE — a gentle staggered rise on load
+========================================== */
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.topbar   { animation: rise .5s ease both; }
+.hero h1  { animation: rise .6s ease .06s both; }
+.hero p   { animation: rise .6s ease .14s both; }
+/* backwards (not both) so the finished animation doesn't pin the tile's
+   transform and break the hover lift */
+.tool-card { animation: rise .6s ease backwards; }
+.tools-grid a:nth-child(1) { animation-delay: .22s; }
+.tools-grid a:nth-child(2) { animation-delay: .30s; }
+.tools-grid a:nth-child(3) { animation-delay: .38s; }
+.site-footer { animation: rise .6s ease .46s both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .topbar, .hero h1, .hero p, .tool-card, .site-footer { animation: none; }
 }
 
 /* ==========================================
@@ -202,15 +258,12 @@ html, body {
 ========================================== */
 
 @media (max-width: 1100px) {
-
   .tools-grid {
     grid-template-columns: repeat(2, 1fr);
   }
-
 }
 
 @media (max-width: 700px) {
-
   .hero { padding-top: 3rem; }
 
   .tools-section {
@@ -230,5 +283,4 @@ html, body {
     max-width: 100%;
     font-size: 1.3rem;
   }
-
 }
