@@ -1,0 +1,109 @@
+/* ============================================================
+   Living City — the canvas fills the screen; everything else is
+   the standard Sound Labs chrome (brand card + tool tag).
+   ============================================================ */
+
+html, body { margin: 0; height: 100%; background: #14100f; overflow: hidden; }
+canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: crosshair; touch-action: none; }
+
+* { box-sizing: border-box; }
+body {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+}
+
+/* ---------- Brand card (top left): one click, straight home ---------- */
+#brand {
+  position: fixed;
+  top: 16px;
+  left: 24px;
+  z-index: 30;
+  display: block;
+  padding: 10px 16px 12px;
+  background: #ececef;
+  color: #0d0e12;
+  border-radius: 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: background 0.18s ease;
+}
+#brand:hover { background: #ffffff; }
+#brand span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: lowercase;
+  color: #6a6b73;
+}
+
+/* ---------- Tool tag (bottom left): name + what it does ---------- */
+#tool-tag {
+  position: fixed;
+  left: 24px;
+  bottom: 16px;
+  z-index: 5;
+  padding: 10px 14px;
+  background: rgba(20, 16, 15, 0.7);
+  border: 1px solid rgba(238, 228, 205, 0.18);
+  border-radius: 2px;
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+#tool-tag strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #eee4cd;
+}
+#tool-tag span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #b7a98a;
+}
+
+/* ---------- Keybind legend (bottom right, on the dark frame) ---------- */
+#keys {
+  position: fixed;
+  right: 24px;
+  bottom: 18px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 12px;
+  max-width: 60vw;
+  pointer-events: none;
+  user-select: none;
+}
+#keys span {
+  font-size: 11px;
+  color: #b7a98a;
+  white-space: nowrap;
+}
+#keys b {
+  display: inline-block;
+  min-width: 12px;
+  margin-right: 4px;
+  padding: 1px 5px;
+  border: 1px solid rgba(238, 228, 205, 0.35);
+  border-radius: 2px;
+  color: #eee4cd;
+  font-weight: 600;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  #brand { top: 14px; left: 14px; padding: 8px 12px 10px; font-size: 13px; }
+  #tool-tag { display: none; }
+  #keys { display: none; }
+}

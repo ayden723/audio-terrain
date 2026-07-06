@@ -41,6 +41,7 @@ async function loadFile(file) {
     dropHint.classList.add('hidden');
     $('transport').classList.remove('hidden');
     $('deck').classList.remove('hidden');
+    $('osc-section').classList.add('hidden'); // file mode: scope controls only
     $('time-total').textContent = fmtTime(audio.duration);
     audio.play();
     updatePlayIcon();
@@ -191,6 +192,7 @@ function synthParams() {
 $('synth-open').addEventListener('click', () => {
   dropHint.classList.add('hidden');
   $('deck').classList.remove('hidden');
+  $('osc-section').classList.remove('hidden');
 });
 
 function stopSynthUI() {
