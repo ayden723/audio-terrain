@@ -6,6 +6,6 @@
   Content-Security-Policy: frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
-  Permissions-Policy: camera=(), microphone=(), geolocation=(), usb=()
+  Permissions-Policy: camera=(), microphone=(self), geolocation=(), usb=()
   Cross-Origin-Opener-Policy: same-origin
   Strict-Transport-Security: max-age=63072000; includeSubDomains

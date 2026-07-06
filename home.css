@@ -205,6 +205,7 @@ body { background: transparent; }
 .tile-terrain { background: #C25A22; color: #ffe4d2; }  /* deep orange */
 .tile-scope   { background: #9C3563; color: #ffd9e8; }  /* deep magenta */
 .tile-earth   { background: #17705B; color: #cffae8; }  /* deep teal */
+.tile-city    { background: #6B4A2E; color: #f3deb8; }  /* sepia — paper & ink */
 
 /* ==========================================
    FOOTER
@@ -247,7 +248,8 @@ body { background: transparent; }
 .tools-grid a:nth-child(1) { animation-delay: .22s; }
 .tools-grid a:nth-child(2) { animation-delay: .30s; }
 .tools-grid a:nth-child(3) { animation-delay: .38s; }
-.site-footer { animation: rise .6s ease .46s both; }
+.tools-grid a:nth-child(4) { animation-delay: .46s; }
+.site-footer { animation: rise .6s ease .54s both; }
 
 @media (prefers-reduced-motion: reduce) {
   .topbar, .hero h1, .hero p, .tool-card, .site-footer { animation: none; }
