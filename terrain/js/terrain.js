@@ -95,6 +95,31 @@ export class Terrain {
     this.setProgress(0);
   }
 
+  /**
+   * Update heights + colors from a new grid WITHOUT rebuilding the mesh,
+   * so the camera and everything else stay put. Used for live painting
+   * (Composer). Falls back to a full build() if the grid size changed.
+   */
+  updateFromGrid(spec, skipNormals = false) {
+    if (!this.mesh || this.W !== spec.width || this.H !== spec.height) {
+      this.build(spec, this.duration);
+      return;
+    }
+    this.spec = spec;
+    const W = this.W;
+    const pos = this.geo.attributes.position;
+    const data = spec.data;
+    for (let i = 0; i < pos.count; i++) {
+      const ix = i % W, iy = Math.floor(i / W);
+      pos.setY(i, Math.pow(data[iy * W + ix], 1.15) * HEIGHT);
+    }
+    pos.needsUpdate = true;
+    // Normal recompute is the expensive part — skip it during a live drag
+    // (heights still move) and do it once when the stroke ends.
+    if (!skipNormals) this.geo.computeVertexNormals();
+    this._applyColors();
+  }
+
   /** Recolor the existing mesh with the named palette (no re-analysis). */
   setPalette(name) {
     if (!PALETTES[name]) return;

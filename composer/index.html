@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+
+  <!-- Security: our own scripts (incl. the hashed importmap) and styles. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-8YPizCoalHHKCnsUUXn7vQkO+0GDUE1de++kdly73ZA='; style-src 'self'; img-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+
+  <title>Composer - Sound Labs</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0b0d'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23fff'/%3E%3Crect x='7' y='3' width='2' height='10' fill='%23fff'/%3E%3Crect x='11' y='5' width='2' height='6' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css?v=5" />
+
+  <!-- Vendored Three.js is shared with the terrain tool (no duplicate copy). -->
+  <script type="importmap">{"imports":{"three":"../terrain/vendor/three.module.js","three/addons/":"../terrain/vendor/addons/"}}</script>
+</head>
+<body>
+  <!-- Paint canvas fills the screen -->
+  <canvas id="paint"></canvas>
+
+  <!-- Brand card: click to go home -->
+  <a id="brand" href="../" title="Back to Sound Labs">Sound&nbsp;Labs<span>by ayden</span></a>
+
+  <!-- Settings panel -->
+  <div id="settings">
+    <h2>Brush</h2>
+    <label class="ctl">
+      <span>Size <em id="size-val">16</em></span>
+      <input type="range" id="brush-size" min="2" max="60" step="1" value="16" />
+    </label>
+    <label class="ctl">
+      <span>Hardness <em id="hard-val">50%</em></span>
+      <input type="range" id="brush-hardness" min="0" max="1" step="0.05" value="0.5" />
+    </label>
+    <label class="ctl">
+      <span>Intensity <em id="op-val">60%</em></span>
+      <input type="range" id="brush-opacity" min="0.05" max="1" step="0.05" value="0.6" />
+    </label>
+
+    <div class="ctl">
+      <span>Type</span>
+      <div class="seg">
+        <button class="seg-btn active" id="type-tone">Tone</button>
+        <button class="seg-btn" id="type-harmonic">Harmonic</button>
+        <button class="seg-btn" id="type-noise">Noise</button>
+      </div>
+    </div>
+
+    <label class="ctl checkbox">
+      <input type="checkbox" id="snap" />
+      <span>Snap to notes</span>
+    </label>
+  </div>
+
+  <!-- 3D inset -->
+  <div id="mini-wrap">
+    <canvas id="mini"></canvas>
+    <span id="mini-label">3D</span>
+    <button id="mini-expand" title="Expand / collapse" aria-label="Expand / collapse">
+      <svg viewBox="0 0 24 24"><path d="M4 14v6h6M20 10V4h-6M14 10l6-6M10 14l-6 6"/></svg>
+    </button>
+  </div>
+
+  <!-- Floating toolbar -->
+  <div id="toolbar">
+    <button class="tool-btn" id="tool-brush" title="Brush" aria-label="Brush">
+      <svg viewBox="0 0 24 24"><path d="M9.5 14.5 4 20M14 4l6 6-8 8H8v-4z"/></svg>
+    </button>
+    <button class="tool-btn" id="tool-eraser" title="Eraser" aria-label="Eraser">
+      <svg viewBox="0 0 24 24"><path d="M4 15l7-7 8 8-4 4H8zM13 19h7"/></svg>
+    </button>
+    <span class="sep"></span>
+    <button class="tool-btn" id="act-undo" title="Undo" aria-label="Undo">
+      <svg viewBox="0 0 24 24"><path d="M9 7 4 12l5 5M4 12h11a5 5 0 0 1 0 10h-1"/></svg>
+    </button>
+    <button class="tool-btn" id="act-redo" title="Redo" aria-label="Redo">
+      <svg viewBox="0 0 24 24"><path d="m15 7 5 5-5 5M20 12H9a5 5 0 0 0 0 10h1"/></svg>
+    </button>
+    <button class="tool-btn" id="act-clear" title="Clear canvas" aria-label="Clear canvas">
+      <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+    </button>
+    <span class="sep"></span>
+    <button class="tool-btn filled" id="play-btn" title="Play / pause" aria-label="Play / pause">
+      <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg class="icon-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+    </button>
+    <button class="tool-btn" id="export-wav" title="Export WAV" aria-label="Export WAV">
+      <svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M5 21h14"/></svg>
+    </button>
+  </div>
+
+  <!-- Hint -->
+  <div id="hint"><b>drag</b> paint · <b>space</b> play · <b>esc</b> close 3D</div>
+
+  <script type="module" src="js/main.js?v=6"></script>
+</body>
+</html>

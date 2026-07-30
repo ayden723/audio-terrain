@@ -206,6 +206,7 @@ body { background: transparent; }
 .tile-scope   { background: #9C3563; color: #ffd9e8; }  /* deep magenta */
 .tile-earth   { background: #17705B; color: #cffae8; }  /* deep teal */
 .tile-city    { background: #6B4A2E; color: #f3deb8; }  /* sepia — paper & ink */
+.tile-composer{ background: #234E7A; color: #d3ecff; }  /* deep blue — the paint canvas */
 
 /* ==========================================
    FOOTER
@@ -249,7 +250,8 @@ body { background: transparent; }
 .tools-grid a:nth-child(2) { animation-delay: .30s; }
 .tools-grid a:nth-child(3) { animation-delay: .38s; }
 .tools-grid a:nth-child(4) { animation-delay: .46s; }
-.site-footer { animation: rise .6s ease .54s both; }
+.tools-grid a:nth-child(5) { animation-delay: .54s; }
+.site-footer { animation: rise .6s ease .62s both; }
 
 @media (prefers-reduced-motion: reduce) {
   .topbar, .hero h1, .hero p, .tool-card, .site-footer { animation: none; }
