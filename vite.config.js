@@ -7,5 +7,8 @@ export default defineConfig({
     port: process.env.PORT ? Number(process.env.PORT) : undefined,
     open: false,
   },
+  preview: {
+    port: process.env.PORT ? Number(process.env.PORT) : undefined,
+  },
   worker: { format: 'es' },
 });
