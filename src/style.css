@@ -169,7 +169,7 @@ html, body {
 
 /* control panel */
 #panel { position: fixed; top: 56px; right: 12px; z-index: 5; }
-.lil-gui.root {
+.lil-gui.lil-root {
   --background-color: rgba(28, 25, 21, 0.92);
   --text-color: #e6ddcb;
   --title-background-color: rgba(16, 14, 12, 0.95);
@@ -194,19 +194,19 @@ html, body {
 
 /* Pin the title and let the controls scroll, so opening every folder can never
    clip off the bottom of the screen. */
-.lil-gui.root > .children {
+.lil-gui.lil-root > .lil-children {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
-.lil-gui.root > .children::-webkit-scrollbar { width: 8px; }
-.lil-gui.root > .children::-webkit-scrollbar-track { background: transparent; }
-.lil-gui.root > .children::-webkit-scrollbar-thumb {
+.lil-gui.lil-root > .lil-children::-webkit-scrollbar { width: 8px; }
+.lil-gui.lil-root > .lil-children::-webkit-scrollbar-track { background: transparent; }
+.lil-gui.lil-root > .lil-children::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.18);
   border-radius: 4px;
 }
-.lil-gui.root > .children::-webkit-scrollbar-thumb:hover {
+.lil-gui.lil-root > .lil-children::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.32);
 }
 
