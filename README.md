@@ -45,6 +45,26 @@ frequency range. `Audio length`, `Synth dynamics` and `Synth partials` control i
 and re-synthesize on change; `Min Hz` / `Max Hz` / `Frequency scale` are shared
 with the analysis so the picture and its sound line up.
 
+### Live input
+
+**Source → Live: microphone / input** captures an input device; **Live: share tab
+/ system** opens the browser's picker so you can share a tab or your whole system
+audio. The terrain then generates continuously as sound arrives, newest ridge at
+the front, and you can orbit and pan while it runs.
+
+To visualise something already playing on the machine — Spotify, a game, a video
+call — use the share option and tick *share system audio*, or capture a loopback
+input device ("Stereo Mix", or a virtual cable). Note that a DRM-protected source
+such as the Spotify *web player* tab may come through silent; the desktop app via
+system audio does not have that problem.
+
+The live path reads two `AnalyserNode`s per column — 4096 and 16384 — and blends
+them by frequency, mirroring the multi-resolution STFT the offline path uses, so
+the short window keeps transients sharp while the long one resolves bass. Level is
+auto-gained against a running peak, so quiet passages still fill the height range.
+**Window (s)** sets how much time the visible terrain spans, which is also what
+sets the scroll rate. Both capture APIs need a secure context (localhost or HTTPS).
+
 ### Waterfall
 
 **Waterfall → Scroll with audio** switches from showing the whole file at once to
@@ -102,6 +122,7 @@ A 4-minute track measures ~11s to load, analyse and draw, holding 49-62fps.
 
 - `src/analysis.worker.js` — FFT, multi-resolution STFT, additive synthesis
 - `src/relief.js` — Three.js scene, geometry and the relief shader
+- `src/live.js` — live capture and the real-time dual-analyser spectrum
 - `src/shape.js` — image sampling (canvas-bound, so it stays on the main thread)
 - `src/presets.js` — look presets
 - `src/main.js` — UI, sources, playback

@@ -4,6 +4,7 @@ import { PRESETS, DEFAULT_STOPS } from './presets.js';
 import { makeDemo } from './demo.js';
 import { imageLevels, imagePixels } from './shape.js';
 import { encodeWav } from './wav.js';
+import { LiveInput } from './live.js';
 
 /* --------------------------------------------------------------- state -- */
 
@@ -39,6 +40,8 @@ const S = {
   renderScale: 1,
   autoRotate: false,
   view: 'reference',
+  // live
+  liveDevice: '',
   // image
   invert: false,
   terrainFrom: 'Image pixels',
@@ -50,6 +53,7 @@ const S = {
 };
 
 const src = { kind: null, name: '', bitmap: null, audioBuffer: null, wavBlob: null, duration: 0 };
+const live = new LiveInput();
 let dataDims = null; // { slices, cols } of whatever matrix the worker is holding
 
 /* ------------------------------------------------------------- helpers -- */
@@ -166,6 +170,7 @@ function buildImageTerrain() {
 
 /** Re-run whichever source feeds the terrain. */
 function rebuildTerrain() {
+  if (src.kind === 'live') { resetLive(); return; }
   if (src.kind === 'image' && S.terrainFrom === 'Image pixels') buildImageTerrain();
   else requestAnalysis();
 }
@@ -176,6 +181,8 @@ let shaping = false;
 let shapeQueued = false;
 
 async function applyShape() {
+  // live shapes each column as it arrives, so sliders take effect on the next one
+  if (src.kind === 'live') return;
   if (!dataDims) return;
   if (shaping) { shapeQueued = true; return; }
   shaping = true;
@@ -349,6 +356,135 @@ function downloadWav() {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
+
+/* ----------------------------------------------------------------- live -- */
+
+let liveRing = null;   // [slices][cols] heights, oldest row first
+let liveDb = null;     // newest raw column, dB
+let liveSm = null;     // time-smoothed column, dB
+let liveTmp = null;
+let liveOct = null;    // log2(f / 1000) per column, for tilt
+let liveTop = -40;     // running reference level (auto-gain)
+let liveAccum = 0;
+let liveLast = 0;
+
+function allocLive() {
+  const slices = Math.max(8, Math.round(S.ridges));
+  const cols = S.cols;
+  liveRing = new Float32Array(slices * cols);
+  liveDb = new Float32Array(cols);
+  liveSm = new Float32Array(cols).fill(-140);
+  liveTmp = new Float32Array(cols);
+  liveTop = -40;
+  liveAccum = 0;
+  liveLast = performance.now();
+  dataDims = { slices, cols };
+
+  live.buildMap(cols, S.fmin, S.fmax, S.scale);
+  const centers = live.map ? live.map.centers : null;
+  liveOct = new Float32Array(cols);
+  for (let c = 0; c < cols; c++) {
+    liveOct[c] = Math.log2(Math.max(centers ? centers[c] : 1000, 1) / 1000);
+  }
+
+  relief.setData(liveRing, slices, cols);
+  relief.setWindow(0, 1);
+}
+
+function resetLive() {
+  if (src.kind === 'live' && live.active) allocLive();
+}
+
+function smoothColumn(arr, cols, sigma) {
+  if (sigma < 0.3) return;
+  const r = Math.max(1, Math.round(sigma));
+  liveTmp.set(arr.subarray(0, cols));
+  for (let c = 0; c < cols; c++) {
+    let sum = 0;
+    let n = 0;
+    for (let i = -r; i <= r; i++) {
+      const j = c + i;
+      if (j >= 0 && j < cols) { sum += liveTmp[j]; n++; }
+    }
+    arr[c] = sum / n;
+  }
+}
+
+/** Roll the ring back one row and shape the newest spectrum into the front. */
+function pushLiveColumn() {
+  if (!live.read(liveDb)) return;
+  const slices = dataDims.slices;
+  const cols = dataDims.cols;
+
+  // time smoothing, as a one-pole toward the new reading
+  const a = 1 / (1 + S.smooth * 0.9);
+  for (let c = 0; c < cols; c++) liveSm[c] += (liveDb[c] - liveSm[c]) * a;
+
+  smoothColumn(liveSm, cols, S.smooth);
+
+  // auto-gain: jump to peaks, fall back slowly, so quiet passages still read
+  let mx = -200;
+  for (let c = 0; c < cols; c++) if (liveSm[c] > mx) mx = liveSm[c];
+  liveTop = Math.max(mx, liveTop - 0.06);
+
+  const lo = liveTop - S.range;
+  const span = Math.max(1e-6, S.range);
+  const cut = Math.min(0.95, Math.max(0, S.cut));
+  const g = Math.max(0.05, S.gamma);
+
+  liveRing.copyWithin(0, cols); // drop the oldest row
+  const base = (slices - 1) * cols;
+  for (let c = 0; c < cols; c++) {
+    let h = (liveSm[c] + S.tilt * liveOct[c] - lo) / span;
+    h = h < 0 ? 0 : h > 1 ? 1 : h;
+    if (cut > 0) h = Math.max(0, (h - cut) / (1 - cut));
+    liveRing[base + c] = Math.pow(h, g);
+  }
+  relief.setData(liveRing, slices, cols);
+}
+
+async function startLive(mode, deviceId) {
+  if (!LiveInput.supported) { toast('This browser has no audio capture API'); return; }
+  try {
+    setBusy(true, mode === 'share' ? 'Waiting for you to pick a source...' : 'Requesting microphone...');
+    const label = await live.start(mode, deviceId);
+    stopPlayback();
+    src.kind = 'live';
+    src.bitmap = null;
+    src.audioBuffer = null;
+    src.wavBlob = null;
+    src.duration = 0;
+    src.name = label;
+    showEmpty(false);
+    showImageControls(false);
+    updateTransportEnabled();
+    $('srcname').textContent = 'live · ' + label;
+    live.onended = () => stopLive();
+    allocLive();
+    await populateDevices();
+    showLiveControls(true);
+  } catch (err) {
+    const denied = /denied|NotAllowed/i.test(String(err.name) + String(err.message));
+    toast(denied ? 'Permission denied for audio capture' : err.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function stopLive() {
+  live.stop();
+  live.onended = null;
+  showLiveControls(false);
+  if (src.kind === 'live') {
+    src.kind = null;
+    src.name = '';
+    $('srcname').textContent = 'no source';
+    dataDims = null;
+    showEmpty(true);
+    relief.setData(new Float32Array(4), 2, 2);
+  }
+}
+
 /* ------------------------------------------------------------ playback -- */
 
 const player = { node: null, startedAt: 0, offset: 0, playing: false };
@@ -411,6 +547,18 @@ function updateTransportEnabled() {
 
 let seeking = false;
 relief.onFrame = () => {
+  if (src.kind === 'live' && live.active && dataDims) {
+    const now = performance.now();
+    const dt = Math.min(0.25, (now - liveLast) / 1000);
+    liveLast = now;
+    liveAccum += dt * (dataDims.slices / Math.max(0.2, S.windowSec));
+    let n = Math.min(6, Math.floor(liveAccum)); // cap catch-up after a stall
+    liveAccum -= n;
+    while (n-- > 0) pushLiveColumn();
+    relief.setWindow(0, 1);
+    relief.setPlayhead(1, 0);
+    return;
+  }
   if (!src.audioBuffer || src.duration <= 0) {
     relief.setWindow(0, 1);
     relief.setPlayhead(0, 0);
@@ -489,6 +637,25 @@ function applyPreset(name) {
 
 let gui;
 let imgControllers = [];
+let stopCtrl = null;
+let deviceCtrl = null;
+
+function showLiveControls(show) {
+  [stopCtrl, deviceCtrl].forEach((c) => c && (show ? c.show() : c.hide()));
+}
+
+/** Device labels are blank until capture permission is granted, so the list is
+ *  refreshed after a successful start rather than up front. */
+async function populateDevices() {
+  if (!deviceCtrl) return;
+  const list = await live.listInputs();
+  const opts = { 'System default': '' };
+  list.forEach((d, i) => { opts[d.label || ('Input ' + (i + 1))] = d.deviceId; });
+  deviceCtrl = deviceCtrl
+    .options(opts)
+    .name('Input device')
+    .onChange((v) => startLive('device', v));
+}
 
 function refreshGui() {
   gui?.controllersRecursive().forEach((c) => c.updateDisplay());
@@ -499,6 +666,7 @@ function showImageControls(show) {
 
 /** Ridge count and window size feed autoSlices(), so they can need a re-analysis. */
 function maybeReanalyze() {
+  if (src.kind === 'live') { resetLive(); return; }
   if (S.waterfall) rebuildTerrain();
 }
 
@@ -506,8 +674,13 @@ function buildGui() {
   gui = new GUI({ container: $('panel'), title: 'Controls' });
 
   const fSrc = gui.addFolder('Source');
-  fSrc.add({ open: () => $('file').click() }, 'open').name('Open audio / image…');
+  fSrc.add({ open: () => { stopLive(); $('file').click(); } }, 'open').name('Open audio / image…');
   fSrc.add({ demo: loadDemo }, 'demo').name('Load demo audio');
+  fSrc.add({ mic: () => startLive('device') }, 'mic').name('Live: microphone / input');
+  fSrc.add({ share: () => startLive('share') }, 'share').name('Live: share tab / system');
+  deviceCtrl = fSrc.add(S, 'liveDevice', { 'System default': '' }).name('Input device');
+  stopCtrl = fSrc.add({ stop: stopLive }, 'stop').name('Stop live input');
+  showLiveControls(false);
   imgControllers = [
     fSrc.add(S, 'invert').name('Invert image').onChange(rebuildTerrain),
     fSrc.add(S, 'terrainFrom', ['Image pixels', 'Synthesized audio']).name('Terrain from').onChange(rebuildTerrain),
@@ -638,6 +811,9 @@ window.__app = {
   requestAnalysis,
   seek,
   autoSlices,
+  startLive,
+  stopLive,
+  live,
   S,
   relief,
   get dims() { return dataDims; },
