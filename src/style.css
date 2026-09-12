@@ -1,6 +1,6 @@
 :root {
-  --paper: #cdb697;
-  --ink: #2b2925;
+  --paper: #10365e;
+  --ink: #efe7d8;
   --chrome: rgba(28, 25, 21, 0.86);
   --chrome-text: #ece3d2;
   --accent: #8a3b12;
@@ -209,6 +209,37 @@ html, body {
 .lil-gui.lil-root > .lil-children::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.32);
 }
+
+#empty {
+  /* centred in the space left of the control panel, not the whole viewport */
+  position: fixed;
+  left: 0;
+  right: 312px;
+  top: 46%;
+  transform: translateY(-50%);
+  text-align: center;
+  color: var(--ink);
+  pointer-events: none;
+  user-select: none;
+}
+#empty .big {
+  font-size: 19px;
+  letter-spacing: 0.03em;
+  opacity: 0.5;
+  margin-bottom: 8px;
+}
+#empty .sub { font-size: 12px; opacity: 0.38; pointer-events: auto; }
+#empty .link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+#empty .link:hover { opacity: 0.75; }
 
 /* overlays */
 #loading {

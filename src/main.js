@@ -31,8 +31,8 @@ const S = {
   windowSec: 4,
   loop: true,
   // look — seeded from the default preset so the two can't drift apart
-  preset: 'Sepia Paper',
-  ...PRESETS['Sepia Paper'],
+  preset: 'Blueprint',
+  ...PRESETS['Blueprint'],
   stops: DEFAULT_STOPS.slice(),
   shadowLen: 1.4,
   shadowSteps: 8,
@@ -77,6 +77,8 @@ function setBusy(on, label) {
 const setProgress = (v) => {
   $('loading').querySelector('.bar i').style.width = `${Math.round(v * 100)}%`;
 };
+
+const showEmpty = (show) => { $('empty').hidden = !show; };
 
 function fmtTime(t) {
   if (!isFinite(t) || t < 0) t = 0;
@@ -230,6 +232,7 @@ function samplesToBuffer(samples, sampleRate) {
 }
 
 function loadDemo() {
+  showEmpty(false);
   const { samples, sampleRate } = makeDemo();
   src.kind = 'audio';
   src.bitmap = null;
@@ -292,6 +295,7 @@ async function loadImageFile(file) {
 
 function handleFile(file) {
   if (!file) return;
+  showEmpty(false);
   const t = file.type || '';
   const ext = file.name.split('.').pop().toLowerCase();
   if (t.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'].includes(ext)) loadImageFile(file);
@@ -587,6 +591,8 @@ $('file').addEventListener('change', (e) => {
 });
 $('btn-open').addEventListener('click', () => $('file').click());
 $('btn-demo').addEventListener('click', loadDemo);
+$('empty-open').addEventListener('click', () => $('file').click());
+$('empty-demo').addEventListener('click', loadDemo);
 $('play').addEventListener('click', togglePlay);
 $('pmode').addEventListener('change', (e) => { S.playMode = e.target.value; });
 $('seek').addEventListener('pointerdown', () => { seeking = true; });
@@ -617,10 +623,11 @@ window.addEventListener('keydown', (e) => {
 
 /* ----------------------------------------------------------------- go --- */
 
+// Starts empty on purpose: no sample audio is loaded until you give it one.
 buildGui();
 applyLook();
 updateTransportEnabled();
-loadDemo();
+showEmpty(true);
 
 // Test hook: drives the app without going through file dialogs.
 window.__app = {
