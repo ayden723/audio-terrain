@@ -238,6 +238,7 @@ function samplesToBuffer(samples, sampleRate) {
   return buf;
 }
 
+// Kept for development and the test hook; deliberately not in the UI.
 function loadDemo() {
   showEmpty(false);
   const { samples, sampleRate } = makeDemo();
@@ -675,7 +676,6 @@ function buildGui() {
 
   const fSrc = gui.addFolder('Source');
   fSrc.add({ open: () => { stopLive(); $('file').click(); } }, 'open').name('Open audio / image…');
-  fSrc.add({ demo: loadDemo }, 'demo').name('Load demo audio');
   fSrc.add({ mic: () => startLive('device') }, 'mic').name('Live: microphone / input');
   fSrc.add({ share: () => startLive('share') }, 'share').name('Live: share tab / system');
   deviceCtrl = fSrc.add(S, 'liveDevice', { 'System default': '' }).name('Input device');
@@ -763,9 +763,7 @@ $('file').addEventListener('change', (e) => {
   e.target.value = '';
 });
 $('btn-open').addEventListener('click', () => $('file').click());
-$('btn-demo').addEventListener('click', loadDemo);
 $('empty-open').addEventListener('click', () => $('file').click());
-$('empty-demo').addEventListener('click', loadDemo);
 $('play').addEventListener('click', togglePlay);
 $('pmode').addEventListener('change', (e) => { S.playMode = e.target.value; });
 $('seek').addEventListener('pointerdown', () => { seeking = true; });
