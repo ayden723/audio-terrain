@@ -15,7 +15,7 @@ Then open http://localhost:5173.
 ## Using it
 
 Drop an audio file or an image anywhere on the window (or use **Open audio / image**).
-Drag to orbit, right-drag to pan, scroll to zoom. Space toggles playback.
+Drag to orbit, right-drag to pan, scroll to zoom. `Space` plays and pauses; `P` toggles presentation mode.
 
 ### Audio
 
@@ -82,6 +82,31 @@ window than a short one.
 The transport bar syncs a playhead through the terrain — **Cursor** highlights the
 slice currently sounding, **Reveal** draws the terrain in as it plays. In
 waterfall mode the leading edge is the playhead, so no cursor is drawn.
+
+### Presentation mode
+
+**Present** (or `P`) hides every control and shows only the terrain, for a
+projector or a second screen. It goes fullscreen, keeps the display awake with
+the Screen Wake Lock API where the browser supports it, hides the cursor after two
+seconds without movement, and drops the paper grain and vignette, which only crush
+shadow detail that projectors already struggle to show. `Esc` or `P` again leaves
+it; `Space` still plays and pauses. Tune the look first — presentation mode shows
+exactly what you set.
+
+### Auto move
+
+**Camera → Auto move** orbits the terrain while also swaying the elevation and
+slowly breathing the zoom, so the view keeps changing rather than just spinning.
+At the default speed it orbits once every 30 seconds; **Motion speed** scales all
+of it together. The motion is applied as small per-frame changes around whatever
+framing you chose, eases in instead of starting abruptly, and hands the camera
+back the moment you drag, resuming a couple of seconds after you let go.
+
+### Reset
+
+**Reset settings** restores every look and analysis setting to its default
+without unloading your source, then offers **Undo** for a few seconds — including
+the camera position.
 
 ## Controls worth knowing
 

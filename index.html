@@ -16,6 +16,9 @@
       <div class="brand">SPECTRAL&nbsp;RELIEF</div>
       <button id="btn-open" class="chip">Open audio / image</button>
       <div id="srcname">no source</div>
+      <div class="grow"></div>
+      <button id="btn-reset" class="chip ghost" title="Restore default settings">Reset settings</button>
+      <button id="btn-present" class="chip" title="Show only the spectrogram (P)">Present</button>
     </header>
 
     <div id="empty">
@@ -23,7 +26,7 @@
       <div class="sub">or <button id="empty-open" class="link">open one</button></div>
     </div>
 
-    <div id="hint">drag to orbit · right-drag to pan · scroll to zoom · drop a file anywhere</div>
+    <div id="hint">drag to orbit · right-drag to pan · scroll to zoom · space play / pause · P present</div>
 
     <footer id="transport">
       <button id="play" title="Play / pause (space)">
@@ -41,6 +44,9 @@
     </footer>
 
     <div id="panel"></div>
+
+    <div id="notice" hidden><span class="txt"></span><button type="button"></button></div>
+    <div id="present-hint" hidden>Esc to exit · Space to play / pause</div>
 
     <div id="loading" hidden>
       <div class="lbl">Working…</div>

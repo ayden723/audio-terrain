@@ -38,7 +38,8 @@ const S = {
   shadowLen: 1.4,
   shadowSteps: 8,
   renderScale: 1,
-  autoRotate: false,
+  autoMove: false,
+  motionSpeed: 1,
   view: 'reference',
   // live
   liveDevice: '',
@@ -51,6 +52,9 @@ const S = {
   // playback
   playMode: 'cursor',
 };
+
+// Taken before anything mutates S, so Reset always has a true baseline.
+const DEFAULTS = structuredClone(S);
 
 const src = { kind: null, name: '', bitmap: null, audioBuffer: null, wavBlob: null, duration: 0 };
 const live = new LiveInput();
@@ -708,7 +712,8 @@ function buildGui() {
   fCam.add(S, 'view', {
     Reference: 'reference', Front: 'front', Side: 'side', 'Low angle': 'low', 'Top down': 'top',
   }).name('View').onChange((v) => relief.setView(v));
-  fCam.add(S, 'autoRotate').name('Auto rotate').onChange((v) => { relief.controls.autoRotate = v; });
+  fCam.add(S, 'autoMove').name('Auto move').onChange((v) => relief.setAutoMove(v, S.motionSpeed));
+  fCam.add(S, 'motionSpeed', 0.25, 3, 0.05).name('Motion speed').onChange((v) => relief.setAutoMove(S.autoMove, v));
 
   const fAdv = gui.addFolder('Advanced');
 
@@ -765,6 +770,8 @@ $('file').addEventListener('change', (e) => {
 $('btn-open').addEventListener('click', () => $('file').click());
 $('empty-open').addEventListener('click', () => $('file').click());
 $('play').addEventListener('click', togglePlay);
+$('btn-reset').addEventListener('click', resetSettings);
+$('btn-present').addEventListener('click', enterPresentation);
 $('pmode').addEventListener('change', (e) => { S.playMode = e.target.value; });
 $('seek').addEventListener('pointerdown', () => { seeking = true; });
 $('seek').addEventListener('pointerup', () => { seeking = false; });
@@ -785,11 +792,168 @@ window.addEventListener('drop', (e) => {
   handleFile(e.dataTransfer.files[0]);
 });
 
+// Only fields you actually type into keep their keys. Checkboxes, sliders,
+// dropdowns and buttons do not, which is what used to swallow the space bar.
+const TYPING_INPUTS = new Set(['text', 'search', 'email', 'number', 'password', 'url', 'tel']);
+function isTyping(el) {
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+  return el.tagName === 'INPUT' && TYPING_INPUTS.has(el.type);
+}
+
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && !/input|select|textarea/i.test(e.target.tagName)) {
+  if (isTyping(e.target)) return;
+  if (e.code === 'Space') {
     e.preventDefault();
-    togglePlay();
+    e.stopPropagation();
+    if (!e.repeat) togglePlay();
+    // Drop focus from whatever was clicked last (often the play button itself),
+    // otherwise the browser also "presses" it and the toggle cancels out.
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  } else if (e.code === 'KeyP' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (presenting) exitPresentation();
+    else enterPresentation();
+  } else if (e.code === 'Escape' && presenting) {
+    exitPresentation();
   }
+}, true);
+
+// Buttons and checkboxes activate on keyup, so that has to be stopped too.
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space' && !isTyping(e.target)) e.preventDefault();
+}, true);
+
+/* ---------------------------------------------------------------- reset -- */
+
+// A reset is to how it looks, not what it is showing, so these stay put.
+const SOURCE_KEYS = ['liveDevice', 'terrainFrom', 'synthDuration', 'synthRange', 'synthRows'];
+// Changing any of these means the terrain has to be re-derived, not just reshaped.
+const REBUILD_KEYS = ['quality', 'cols', 'fmin', 'fmax', 'scale', 'waterfall', 'windowSec', 'ridges', 'invert'];
+
+let undoSnapshot = null;
+let noticeTimer = 0;
+
+function applySettings(next) {
+  const rebuild = REBUILD_KEYS.some((k) => S[k] !== next[k]);
+  Object.assign(S, next);
+  applyLook();
+  relief.setRenderScale(S.renderScale);
+  relief.setAutoMove(S.autoMove, S.motionSpeed);
+  $('pmode').value = S.playMode;
+  refreshGui();
+  if (rebuild) rebuildTerrain();
+  else applyShape();
+}
+
+function resetSettings() {
+  undoSnapshot = {
+    settings: structuredClone(S),
+    cam: relief.camera.position.clone(),
+    target: relief.controls.target.clone(),
+  };
+  const next = structuredClone(DEFAULTS);
+  for (const k of SOURCE_KEYS) next[k] = S[k];
+  // an image keeps its own proportions rather than the default depth
+  if (src.kind === 'image' && src.bitmap) {
+    next.depth = Math.min(26, Math.max(3, (next.width * src.bitmap.width) / src.bitmap.height));
+  }
+  applySettings(next);
+  relief.setView(S.view);
+  showNotice('Settings reset', 'Undo', undoReset);
+}
+
+function undoReset() {
+  if (!undoSnapshot) return;
+  const { settings, cam, target } = undoSnapshot;
+  undoSnapshot = null;
+  applySettings(settings);
+  relief.tween = null;
+  relief.camera.position.copy(cam);
+  relief.controls.target.copy(target);
+  relief.controls.update();
+  hideNotice();
+}
+
+function showNotice(text, action, fn) {
+  const el = $('notice');
+  el.querySelector('.txt').textContent = text;
+  const btn = el.querySelector('button');
+  btn.textContent = action;
+  btn.onclick = fn;
+  el.hidden = false;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(hideNotice, 6000);
+}
+
+function hideNotice() {
+  $('notice').hidden = true;
+}
+
+/* --------------------------------------------------------- presentation -- */
+
+let presenting = false;
+let wakeLock = null;
+let cursorTimer = 0;
+let hintTimer = 0;
+
+async function acquireWakeLock() {
+  // keeps a projector laptop from dimming or sleeping mid-show
+  try {
+    wakeLock = navigator.wakeLock ? await navigator.wakeLock.request('screen') : null;
+  } catch {
+    wakeLock = null;
+  }
+}
+
+function hideCursorSoon() {
+  document.body.classList.remove('cursor-hidden');
+  clearTimeout(cursorTimer);
+  if (presenting) cursorTimer = setTimeout(() => document.body.classList.add('cursor-hidden'), 2000);
+}
+
+async function enterPresentation() {
+  if (presenting) return;
+  presenting = true;
+  hideNotice();
+  document.body.classList.add('presenting');
+  try {
+    if (!document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+  } catch {
+    /* fullscreen refused (e.g. embedded) -- the UI is still hidden */
+  }
+  acquireWakeLock();
+  const hint = $('present-hint');
+  hint.hidden = false;
+  hint.classList.remove('fade');
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => hint.classList.add('fade'), 2200);
+  hideCursorSoon();
+}
+
+function exitPresentation() {
+  if (!presenting) return;
+  presenting = false;
+  document.body.classList.remove('presenting', 'cursor-hidden');
+  clearTimeout(cursorTimer);
+  clearTimeout(hintTimer);
+  $('present-hint').hidden = true;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (wakeLock) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+}
+
+// The browser swallows Esc to leave fullscreen, so follow that rather than the key.
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) exitPresentation();
+});
+// A wake lock is dropped whenever the tab is hidden; take it back on return.
+document.addEventListener('visibilitychange', () => {
+  if (presenting && document.visibilityState === 'visible') acquireWakeLock();
+});
+window.addEventListener('pointermove', () => {
+  if (presenting) hideCursorSoon();
 });
 
 /* ----------------------------------------------------------------- go --- */
@@ -809,6 +973,11 @@ window.__app = {
   requestAnalysis,
   seek,
   autoSlices,
+  resetSettings,
+  undoReset,
+  enterPresentation,
+  exitPresentation,
+  get presenting() { return presenting; },
   startLive,
   stopLive,
   live,

@@ -288,3 +288,65 @@ html, body {
   z-index: 30;
   max-width: 70vw;
 }
+
+.grow { flex: 1; }
+
+/* undoable notice, neutral rather than the red error toast */
+#notice {
+  position: fixed;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 7px 6px 14px;
+  border-radius: 999px;
+  background: var(--chrome);
+  color: var(--chrome-text);
+  font-size: 12px;
+  box-shadow: 0 6px 26px rgba(0, 0, 0, 0.22);
+  z-index: 30;
+}
+#notice button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+#notice button:hover { background: rgba(255, 255, 255, 0.24); }
+
+/* presentation: nothing on screen but the terrain */
+body.presenting #topbar,
+body.presenting #panel,
+body.presenting #transport,
+body.presenting #hint,
+body.presenting #empty,
+body.presenting #notice,
+body.presenting #drop { display: none !important; }
+
+/* grain and vignette are a multiply layer; on a projector they only crush the
+   shadow detail that projectors already struggle to show */
+body.presenting #grain { opacity: 0 !important; }
+
+body.cursor-hidden,
+body.cursor-hidden * { cursor: none !important; }
+
+#present-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.9s ease;
+  z-index: 40;
+}
+#present-hint.fade { opacity: 0; }

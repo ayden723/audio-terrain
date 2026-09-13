@@ -172,6 +172,14 @@ export class Relief {
     this.tween = null;
     this.onFrame = null;
 
+    // Auto move: a steady orbit with elevation sway and a slow zoom. It is applied
+    // as per-frame deltas, so it drifts around the framing you chose instead of
+    // snapping to a preset path.
+    this.auto = { on: false, speed: 1, ramp: 0, t: 0, idleUntil: 0, last: performance.now() };
+    this.userActive = false;
+    this._off = new THREE.Vector3();
+    this._sph = new THREE.Spherical();
+
     this.uniforms = {
       uHeights: { value: null },
       uDataSize: { value: new THREE.Vector2(1, 1) },
@@ -227,8 +235,6 @@ export class Relief {
   makeControls(up) {
     const prev = this.controls;
     const target = prev ? prev.target.clone() : new THREE.Vector3(0, 1, 0);
-    const auto = prev ? prev.autoRotate : false;
-    const speed = prev ? prev.autoRotateSpeed : 0.6;
     if (prev) prev.dispose();
     this.camera.up.copy(up);
     const c = new OrbitControls(this.camera, this.canvas);
@@ -240,8 +246,13 @@ export class Relief {
     c.minDistance = 0.6;
     c.maxDistance = 300;
     c.target.copy(target);
-    c.autoRotate = auto;
-    c.autoRotateSpeed = speed;
+    // Give the camera back the moment it is touched, and only ease auto move
+    // back in once the user has let go for a moment.
+    c.addEventListener('start', () => { this.userActive = true; this.auto.ramp = 0; });
+    c.addEventListener('end', () => {
+      this.userActive = false;
+      this.auto.idleUntil = performance.now() + 1800;
+    });
     this.controls = c;
   }
 
@@ -438,6 +449,34 @@ export class Relief {
     }
   }
 
+  setAutoMove(on, speed) {
+    if (on && !this.auto.on) this.auto.ramp = 0;
+    this.auto.on = on;
+    if (speed !== undefined) this.auto.speed = speed;
+  }
+
+  driftCamera(dt) {
+    const a = this.auto;
+    a.ramp = Math.min(1, a.ramp + dt / 1.6);
+    const ease = a.ramp * a.ramp * (3 - 2 * a.ramp); // velocity eases in, so nothing lurches
+    const step = dt * a.speed * ease;
+    const t0 = a.t;
+    const t1 = (a.t += step);
+
+    const TAU = Math.PI * 2;
+    const sway = (t) => 0.17 * Math.sin((t * TAU) / 21); // elevation, about +/-10 degrees
+    const breathe = (t) => 0.12 * Math.sin((t * TAU) / 29 + 1.3); // distance, +/-12%
+
+    // Differences of bounded curves telescope, so the camera can never wander off.
+    const off = this._off.copy(this.camera.position).sub(this.controls.target);
+    const sph = this._sph.setFromVector3(off);
+    sph.theta += step * (TAU / 30); // one full orbit every 30s at speed 1
+    sph.phi = Math.min(Math.PI - 0.05, Math.max(0.05, sph.phi - (sway(t1) - sway(t0))));
+    sph.radius *= (1 + breathe(t1)) / (1 + breathe(t0));
+    off.setFromSpherical(sph);
+    this.camera.position.copy(this.controls.target).add(off);
+  }
+
   resize() {
     const el = this.canvas.parentElement;
     const w = Math.max(1, el.clientWidth);
@@ -457,6 +496,15 @@ export class Relief {
       this.controls.target.lerpVectors(this.tween.t0, this.tween.t1, e);
       if (t >= 1) this.tween = null;
     }
+
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.auto.last) / 1000);
+    this.auto.last = now;
+    const canDrift =
+      this.auto.on && !this.tween && !this.userActive && now >= this.auto.idleUntil && this.camera.up.y > 0.5;
+    if (canDrift) this.driftCamera(dt);
+    else this.auto.ramp = 0;
+
     this.controls.update();
 
     const ext = Math.max(this.dims.W, this.dims.D);
