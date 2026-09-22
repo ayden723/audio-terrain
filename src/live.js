@@ -9,7 +9,7 @@ const SHORT = 4096;
 const LONG = 16384;
 const FLOOR_DB = -140;
 
-export function freqMap(scale, fmin, fmax) {
+function freqMap(scale, fmin, fmax) {
   if (scale === 'linear') return (u) => fmin + (fmax - fmin) * u;
   if (scale === 'mel') {
     const m = (f) => 2595 * Math.log10(1 + f / 700);

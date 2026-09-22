@@ -285,23 +285,6 @@ html, body {
 #loading .bar { height: 2px; border-radius: 1px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
 #loading .bar i { display: block; height: 100%; width: 0%; background: var(--accent); transition: width 0.15s linear; }
 
-/* Hover readout: what is under the pointer on the terrain. */
-#readout {
-  position: fixed;
-  z-index: 5;
-  pointer-events: none;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--chrome);
-  color: var(--chrome-text);
-  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-}
-#readout b { font-weight: 600; color: var(--accent); }
-#readout i { font-style: normal; opacity: 0.45; margin: 0 5px; }
-
 #drop {
   position: fixed;
   inset: 14px;
@@ -369,8 +352,7 @@ body.presenting #transport,
 body.presenting #hint,
 body.presenting #empty,
 body.presenting #notice,
-body.presenting #drop,
-body.presenting #readout { display: none !important; }
+body.presenting #drop { display: none !important; }
 
 /* grain and vignette are a multiply layer; on a projector they only crush the
    shadow detail that projectors already struggle to show */

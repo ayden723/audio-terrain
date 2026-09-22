@@ -4,7 +4,7 @@ import { PRESETS, DEFAULT_STOPS } from './presets.js';
 import { makeDemo } from './demo.js';
 import { imageLevels, imagePixels } from './shape.js';
 import { encodeWav } from './wav.js';
-import { LiveInput, freqMap } from './live.js';
+import { LiveInput } from './live.js';
 import { scramble } from './shared/scramble.js';
 import { wipeIn, wipeLink } from './shared/wipe.js';
 
@@ -665,75 +665,8 @@ function updateTransportEnabled() {
   $('tdur').textContent = fmtTime(src.duration);
 }
 
-/* ------------------------------------------------------ hover readout -- */
-
-// What is under the pointer: frequency, time and level. Mouse only, and hidden
-// while orbiting, drawing in or presenting.
-const readout = $('readout');
-let hoverEvt = null;
-
-function hideReadout() {
-  if (!readout.hidden) readout.hidden = true;
-  relief.setHover(-1);
-}
-
-$('view').addEventListener('pointermove', (e) => {
-  hoverEvt = e.pointerType === 'mouse' && e.buttons === 0 ? e : null;
-  if (!hoverEvt) hideReadout();
-});
-$('view').addEventListener('pointerleave', () => { hoverEvt = null; hideReadout(); });
-$('view').addEventListener('pointerdown', () => { hoverEvt = null; hideReadout(); });
-
-const fmtHz = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`);
-const signed = (n) => (n < 0 ? `−${Math.abs(n)}` : String(n));
-function fmtTimeFine(t) {
-  const m = Math.floor(t / 60);
-  const s = t - m * 60;
-  return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`;
-}
-
-function updateReadout() {
-  if (!hoverEvt) return;
-  if (presenting || relief.userActive || relief.introActive || !dataDims || !src.kind) { hideReadout(); return; }
-  const view = $('view').getBoundingClientRect();
-  const hit = relief.probe(
-    ((hoverEvt.clientX - view.left) / view.width) * 2 - 1,
-    -((hoverEvt.clientY - view.top) / view.height) * 2 + 1
-  );
-  if (!hit) { hideReadout(); return; }
-
-  const sr = (src.kind === 'live' ? live.ctx && live.ctx.sampleRate : src.audioBuffer && src.audioBuffer.sampleRate) || 44100;
-  const fmax = Math.min(S.fmax, sr * 0.4975);
-  const fmin = Math.max(2, Math.min(S.fmin, fmax * 0.5));
-  const f = freqMap(S.scale, fmin, fmax)(Math.min(1, Math.max(0, hit.u)));
-  const parts = [`<b>${fmtHz(f)}</b>`];
-
-  const u = relief.uniforms;
-  if (src.kind === 'live') {
-    parts.push(`${signed(-Number(((1 - hit.v) * S.windowSec).toFixed(1)))} s`);
-  } else if (src.duration > 0) {
-    parts.push(fmtTimeFine((u.uWinStart.value + hit.v * u.uWinSpan.value) * src.duration));
-  }
-
-  // undo the shaping's contrast curve to get back to the level it drew
-  const level = S.cut + (1 - S.cut) * Math.pow(Math.max(0, hit.h), 1 / Math.max(0.05, S.gamma));
-  const isDb = src.kind !== 'image' || S.terrainFrom === 'Synthesized audio';
-  if (!isDb) parts.push(`${Math.round(level * 100)}% bright`);
-  else if (hit.h <= 0.001) parts.push(`≤ ${signed(-Math.round(S.range))} dB`);
-  else parts.push(`${signed(Math.round((level - 1) * S.range))} dB`);
-
-  readout.innerHTML = parts.join('<i>·</i>');
-  readout.hidden = false;
-  const w = readout.offsetWidth;
-  const x = hoverEvt.clientX + 16 + w > window.innerWidth - 8 ? hoverEvt.clientX - 16 - w : hoverEvt.clientX + 16;
-  readout.style.left = `${x}px`;
-  readout.style.top = `${Math.max(8, hoverEvt.clientY - 36)}px`;
-  relief.setHover(hit.v);
-}
-
 let seeking = false;
 relief.onFrame = () => {
-  updateReadout();
   if (src.kind === 'live' && live.active && dataDims) {
     const now = performance.now();
     const dt = Math.min(0.25, (now - liveLast) / 1000);

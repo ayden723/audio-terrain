@@ -1,12 +1,9 @@
 import './bg.js';
 import { dissolve } from './dissolve.js';
-import { loudness } from './loudness.js';
 import { scramble } from '../shared/scramble.js';
 import { wipeIn, wipeLink } from '../shared/wipe.js';
 
 wipeIn();
-
-loudness(document.querySelector('.hero h1'));
 
 const card = document.querySelector('.tile-terrain');
 const open = dissolve(card);
