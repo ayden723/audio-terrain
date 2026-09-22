@@ -18,7 +18,11 @@
   let W = 220, H = 130, img = null, aspect = 1;
 
   function resize() {
-    aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    // A tab opened in the background can report a 0x0 window; keep the last
+    // aspect until it has a real size.
+    if (window.innerWidth > 0 && window.innerHeight > 0) {
+      aspect = window.innerWidth / window.innerHeight;
+    }
     W = 220;
     H = Math.max(60, Math.round(W / aspect));
     canvas.width = W;

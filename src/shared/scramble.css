@@ -1,0 +1,14 @@
+/* Level-meter scramble (see scramble.js). Letters stay inline and keep their
+   glyphs, so the label's layout is identical while it runs. */
+.scr { position: relative; }
+.scr.bar { -webkit-text-fill-color: transparent; }
+.scr.bar::after {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: 0.24em; /* about the baseline */
+  height: calc(var(--lvl, 0.6) * 0.72em);
+  border-radius: 1px;
+  background: currentColor; /* `color` is untouched, so this is the text colour */
+}

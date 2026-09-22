@@ -1,7 +1,11 @@
-# Local dev helper (not needed for the deployed site)
-.claude/
+node_modules/
+dist/
+.vite/
+.wrangler/
+*.local
+.claude/settings.local.json
 
-# Build artifacts / archives
+# Archives
 *.zip
 
 # OS cruft

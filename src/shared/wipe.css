@@ -1,0 +1,27 @@
+/* Scanline wipe (see wipe.js). The first rule is the closed state painted
+   before any script runs, so it must match the closed bars exactly. */
+html.wipe-in::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: repeating-linear-gradient(#0b0b0d 0 12.5%, #19191c 12.5% 25%);
+}
+
+.wipe {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+.wipe i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: calc(12.5% + 1px); /* the extra pixel hides seams between bands */
+  background: #0b0b0d;
+  transform: scaleY(0);
+  transform-origin: top;
+}
+.wipe i:nth-child(even) { background: #19191c; }
+.wipe.closed i { transform: scaleY(1); transform-origin: bottom; }
