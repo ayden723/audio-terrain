@@ -26,6 +26,23 @@ several overlapping frames, which is what keeps the surface smooth instead of
 noisy. **FFT quality** trades time for fidelity — *Ultra* uses 1024/4096/16384
 point windows at 8x overlap.
 
+### Long files
+
+A loaded audio file is fitted to its length. Up to about 20 seconds the defaults
+are kept as they are. Past that, the ridge count and the depth of the time axis
+grow with the song (gently, so a ten-minute track doesn't turn into a corridor),
+each ridge is analysed as exactly its own slice of time, and anything longer than
+45 seconds opens in the **Timeline** view: time runs left to right across the
+screen with the bass range behind it, so the shape of the whole song reads at a
+glance. A 3-minute song gets about 420 ridges over a depth of 20.
+
+Only the ridge count, depth and view are fitted. Change any of them by hand and
+it stays yours: later fits leave it alone until **Reset settings**. Live input
+and images are never fitted, and switching to them returns those settings to
+what they were before the file was loaded. The camera is always framed from the
+terrain's actual bounds, and changing width or depth reframes it without
+changing your viewing angle.
+
 ### Images
 
 Dropping an image does two things at once: the picture becomes terrain, and it is

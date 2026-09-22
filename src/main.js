@@ -129,7 +129,9 @@ function call(msg, transfer, onProgress) {
 function autoSlices() {
   const d = src.duration || 12;
   if (S.waterfall) return Math.max(240, Math.min(3000, Math.ceil((d / S.windowSec) * S.ridges)));
-  return Math.max(200, Math.min(1000, Math.round(S.ridges * 1.8)));
+  // One slice per drawn ridge: each ridge then shows the average of exactly its
+  // own stretch of time. Analysing more slices than ridges only aliased.
+  return Math.max(24, Math.round(S.ridges));
 }
 
 let analyzing = false;
@@ -207,6 +209,75 @@ async function applyShape() {
   }
 }
 
+/* ------------------------------------------------------------- auto-fit -- */
+
+// The settings the auto-fit may change. Everything else stays as you set it.
+const FIT_KEYS = ['ridges', 'depth', 'view'];
+
+// Geometry a source chose for itself rather than you: `source` is 'audio' (the
+// fit below) or 'image' (depth from the picture's proportions). `base` holds the
+// values it replaced and `owned` the keys it still controls; a key you change by
+// hand stops being owned, so it is never overridden. Switching source hands the
+// owned keys back, so neither an image's shape nor a song's fit leaks into the
+// next file or into live input.
+let fit = null;
+
+const pickKeys = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
+
+/** Seconds of audio the terrain shows at once. */
+function visibleSpan(settings = S) {
+  if (!src.duration) return 0;
+  return settings.waterfall ? Math.min(settings.windowSec, src.duration) : src.duration;
+}
+
+/**
+ * Presentation for a span of audio. Up to ~20 s the defaults already look right.
+ * Past that, a fixed ridge count makes each ridge average ever more time and a
+ * fixed depth crams the song together, so both grow -- sub-linearly, so that a
+ * ten-minute track does not turn into a corridor -- and long spans switch to the
+ * timeline view, where the song reads left to right.
+ */
+function fitFor(span, base) {
+  const r = Math.max(1, span / 20);
+  return {
+    ridges: Math.round(Math.min(600, base.ridges * Math.pow(r, 0.22))),
+    depth: +Math.min(30, base.depth * Math.pow(r, 0.55)).toFixed(1),
+    view: span > 45 ? 'timeline' : base.view,
+  };
+}
+
+/** Fit the geometry to the loaded audio file. Live input and images are never fitted. */
+function applyFit() {
+  if (src.kind !== 'audio' || !src.duration) return;
+  if (fit && fit.source !== 'audio') releaseFit();
+  if (!fit) fit = { source: 'audio', base: pickKeys(S, FIT_KEYS), owned: new Set(FIT_KEYS) };
+  if (!fit.owned.size) return;
+  const next = fitFor(visibleSpan(), { ...pickKeys(S, FIT_KEYS), ...fit.base });
+  for (const k of fit.owned) S[k] = next[k];
+  applyLook();
+  refreshGui();
+  if (fit.owned.has('view')) relief.setView(S.view, false);
+  else relief.reframe(false);
+}
+
+/** Hand the fitted keys back to their pre-fit values (switching to live or an image). */
+function releaseFit() {
+  if (!fit) return;
+  const restore = pickKeys(fit.base, [...fit.owned]);
+  fit = null;
+  Object.assign(S, restore);
+  applyLook();
+  refreshGui();
+  relief.setView(S.view, false);
+}
+
+/** A setting changed by hand is yours from then on. */
+function own(key) {
+  if (!fit) return;
+  fit.owned.delete(key);
+  delete fit.base[key];
+}
+
 /* ------------------------------------------------------------- sources -- */
 
 let actx = null;
@@ -253,6 +324,7 @@ function loadDemo() {
   $('srcname').textContent = src.name;
   adoptAudio(samplesToBuffer(samples, sampleRate), src.name);
   showImageControls(false);
+  applyFit();
   requestAnalysis();
 }
 
@@ -268,6 +340,7 @@ async function loadAudioFile(file) {
     $('srcname').textContent = `${file.name} · ${fmtTime(buffer.duration)}`;
     adoptAudio(buffer, file.name);
     showImageControls(false);
+    applyFit();
     await requestAnalysis();
   } catch (err) {
     toast(`Could not decode ${file.name}: ${err.message}`);
@@ -281,6 +354,8 @@ async function loadImageFile(file) {
   try {
     const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
     stopPlayback();
+    releaseFit();
+    fit = { source: 'image', base: { depth: S.depth }, owned: new Set(['depth']) };
     src.kind = 'image';
     src.bitmap = bitmap;
     src.audioBuffer = null;
@@ -465,6 +540,7 @@ async function startLive(mode, deviceId) {
     updateTransportEnabled();
     $('srcname').textContent = 'live · ' + label;
     live.onended = () => stopLive();
+    releaseFit();
     allocLive();
     await populateDevices();
     showLiveControls(true);
@@ -616,8 +692,8 @@ function applyLook() {
     uShadowLen: S.shadowLen,
     uShadowSteps: S.shadowSteps,
     uFog: S.fog,
-    uReverse: S.reverse ? 1 : 0,
   });
+  relief.setReverse(S.reverse);
   relief.setLight(S.lightAz, S.lightEl);
   relief.setDims({ W: S.width, H: S.height, D: S.depth });
   document.documentElement.style.setProperty('--paper', S.bg);
@@ -696,7 +772,7 @@ function buildGui() {
   const fLook = gui.addFolder('Look');
   fLook.add(S, 'preset', Object.keys(PRESETS)).name('Preset').onChange(applyPreset);
   fLook.add(S, 'mode', { Ridges: 'ridges', Lines: 'lines', Surface: 'surface' }).name('Render mode').onChange(applyLook);
-  fLook.add(S, 'ridges', 24, 600, 1).name('Ridge count').onChange(applyLook).onFinishChange(maybeReanalyze);
+  fLook.add(S, 'ridges', 24, 600, 1).name('Ridge count').onChange(() => { own('ridges'); applyLook(); }).onFinishChange(maybeReanalyze);
   fLook.add(S, 'skirt', 0, 1.2, 0.01).name('Ridge depth').onChange(applyLook);
   fLook.add(S, 'height', 0.2, 9, 0.05).name('Height').onChange(applyLook);
   fLook.add(S, 'smooth', 0, 8, 0.1).name('Smoothing').onChange(applyShape);
@@ -704,14 +780,14 @@ function buildGui() {
   fLook.add(S, 'gamma', 0.3, 3, 0.01).name('Contrast').onChange(applyShape);
 
   const fFall = gui.addFolder('Waterfall');
-  fFall.add(S, 'waterfall').name('Scroll with audio').onChange(rebuildTerrain);
+  fFall.add(S, 'waterfall').name('Scroll with audio').onChange(() => { applyFit(); rebuildTerrain(); });
   fFall.add(S, 'loop').name('Loop');
-  fFall.add(S, 'windowSec', 0.5, 30, 0.5).name('Window (s)').onFinishChange(maybeReanalyze);
+  fFall.add(S, 'windowSec', 0.5, 30, 0.5).name('Window (s)').onFinishChange(() => { if (S.waterfall) applyFit(); maybeReanalyze(); });
 
   const fCam = gui.addFolder('Camera');
   fCam.add(S, 'view', {
-    Reference: 'reference', Front: 'front', Side: 'side', 'Low angle': 'low', 'Top down': 'top',
-  }).name('View').onChange((v) => relief.setView(v));
+    Reference: 'reference', Timeline: 'timeline', Front: 'front', Side: 'side', 'Low angle': 'low', 'Top down': 'top',
+  }).name('View').onChange((v) => { own('view'); relief.setView(v); });
   fCam.add(S, 'autoMove').name('Auto move').onChange((v) => relief.setAutoMove(v, S.motionSpeed));
   fCam.add(S, 'motionSpeed', 0.25, 3, 0.05).name('Motion speed').onChange((v) => relief.setAutoMove(S.autoMove, v));
 
@@ -727,8 +803,8 @@ function buildGui() {
   const fShape = fAdv.addFolder('Shape');
   fShape.add(S, 'tilt', -6, 9, 0.1).name('Tilt (dB/oct)').onChange(applyShape);
   fShape.add(S, 'cut', 0, 0.6, 0.005).name('Floor cut').onChange(applyShape);
-  fShape.add(S, 'width', 3, 24, 0.1).name('Width').onChange(applyLook);
-  fShape.add(S, 'depth', 2, 30, 0.1).name('Depth').onChange(applyLook);
+  fShape.add(S, 'width', 3, 24, 0.1).name('Width').onChange(applyLook).onFinishChange(() => relief.reframe());
+  fShape.add(S, 'depth', 2, 40, 0.1).name('Depth').onChange(() => { own('depth'); applyLook(); }).onFinishChange(() => relief.reframe());
   fShape.add(S, 'reverse').name('Reverse time').onChange(applyLook);
 
   const fCol = fAdv.addFolder('Colour & light');
@@ -847,6 +923,7 @@ function applySettings(next) {
 
 function resetSettings() {
   undoSnapshot = {
+    fit: fit && { source: fit.source, base: { ...fit.base }, owned: [...fit.owned] },
     settings: structuredClone(S),
     cam: relief.camera.position.clone(),
     target: relief.controls.target.clone(),
@@ -854,8 +931,14 @@ function resetSettings() {
   const next = structuredClone(DEFAULTS);
   for (const k of SOURCE_KEYS) next[k] = S[k];
   // an image keeps its own proportions rather than the default depth
+  fit = null;
   if (src.kind === 'image' && src.bitmap) {
+    fit = { source: 'image', base: { depth: next.depth }, owned: new Set(['depth']) };
     next.depth = Math.min(26, Math.max(3, (next.width * src.bitmap.width) / src.bitmap.height));
+  }
+  if (src.kind === 'audio' && src.duration) {
+    fit = { source: 'audio', base: pickKeys(next, FIT_KEYS), owned: new Set(FIT_KEYS) };
+    Object.assign(next, fitFor(visibleSpan(next), fit.base));
   }
   applySettings(next);
   relief.setView(S.view);
@@ -864,9 +947,11 @@ function resetSettings() {
 
 function undoReset() {
   if (!undoSnapshot) return;
-  const { settings, cam, target } = undoSnapshot;
+  const { settings, cam, target, fit: savedFit } = undoSnapshot;
   undoSnapshot = null;
+  fit = savedFit && { source: savedFit.source, base: savedFit.base, owned: new Set(savedFit.owned) };
   applySettings(settings);
+  relief.setView(S.view, false); // restores the view's time direction before the camera
   relief.tween = null;
   relief.camera.position.copy(cam);
   relief.controls.target.copy(target);
@@ -974,6 +1059,10 @@ window.__app = {
   seek,
   autoSlices,
   resetSettings,
+  applyFit,
+  fitFor,
+  get fit() { return fit; },
+  get gui() { return gui; },
   undoReset,
   enterPresentation,
   exitPresentation,

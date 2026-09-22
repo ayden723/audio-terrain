@@ -25,7 +25,9 @@ void main() {
   float u = position.x;
   float top = position.y;
   float v = position.z;
-  float dv = uWinStart + v * uWinSpan;
+  // Sample texel centres: when ridges and slices line up 1:1, each ridge reads
+  // exactly its own slice instead of straddling two, which is what aliased.
+  float dv = 0.5 / uDataSize.y + (uWinStart + v * uWinSpan) * (1.0 - 1.0 / uDataSize.y);
 
   float h = hAt(vec2(u, dv));
   float crest = h * uHt;
@@ -152,6 +154,21 @@ void main() {
 }
 `;
 
+// A view is an orbit direction plus, optionally, a flip of the time axis. The
+// distance is always solved from the terrain's bounds (see solveFit), so any
+// width, depth or window shape gets framed instead of guessed at.
+const VIEWS = {
+  reference: { az: -3, el: 17 },
+  front: { az: 0, el: 9 },
+  side: { az: 90, el: 20 },
+  low: { az: -36, el: 7 },
+  // Time runs left to right across the screen with the bass range behind it:
+  // the readable way to show a whole song at once. Seen from this side the time
+  // axis would otherwise run right to left, hence the flip.
+  timeline: { az: 72, el: 34, flip: true },
+  top: { top: true },
+};
+
 const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
 export class Relief {
@@ -171,6 +188,8 @@ export class Relief {
     this.mesh = null;
     this.tween = null;
     this.onFrame = null;
+    this.viewFlip = false;    // set by the view (timeline flips time)
+    this.userReverse = false; // the Reverse time setting
 
     // Auto move: a steady orbit with elevation sway and a slow zoom. It is applied
     // as per-frame deltas, so it drifts around the framing you chose instead of
@@ -400,39 +419,70 @@ export class Relief {
   /* -------------------------------------------------------- camera ----- */
 
   setView(name, animate = true) {
-    const { W, H, D } = this.dims;
-    let up = new THREE.Vector3(0, 1, 0);
-    let pos;
-    let tgt = new THREE.Vector3(0, H * 0.35, 0);
-    switch (name) {
-      case 'front':
-        pos = new THREE.Vector3(0, H * 0.85, D * 0.5 + W * 1.6);
-        break;
-      case 'side':
-        pos = new THREE.Vector3(W * 0.5 + D * 1.8, H * 1.4, 0.001);
-        break;
-      case 'low':
-        pos = new THREE.Vector3(-W * 0.62, H * 0.55, D * 0.5 + W * 1.0);
-        tgt = new THREE.Vector3(0, H * 0.28, 0);
-        break;
-      case 'top':
-        up = new THREE.Vector3(1, 0, 0);
-        pos = new THREE.Vector3(0, Math.max(W, D) * 1.9, 0);
-        tgt = new THREE.Vector3(0, 0, 0);
-        break;
-      case 'reference':
-      default:
-        pos = new THREE.Vector3(-W * 0.08, H * 1.25 + D * 0.25, D * 0.55 + W * 1.5);
-        break;
-    }
-    // a narrow viewport needs more distance to fit the same width
-    const fit = Math.max(1, 1.55 / Math.max(this.camera.aspect, 0.35));
-    pos.sub(tgt).multiplyScalar(fit).add(tgt);
-
+    const v = VIEWS[name] || VIEWS.reference;
+    this.viewFlip = !!v.flip;
+    this.applyReverse();
+    const up = v.top ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
     if (!this.camera.up.equals(up)) {
       this.makeControls(up);
       animate = false;
     }
+    const { pos, tgt } = v.top ? this.solveTop() : this.solveOrbit(v.az, v.el);
+    this.moveCamera(pos, tgt, animate);
+  }
+
+  /** Refit the distance to the current bounds, keeping the angle you look from. */
+  reframe(animate = true) {
+    if (this.camera.up.x > 0.5) {
+      const { pos, tgt } = this.solveTop();
+      this.moveCamera(pos, tgt, animate);
+      return;
+    }
+    const sph = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
+    const az = THREE.MathUtils.radToDeg(sph.theta);
+    const el = 90 - THREE.MathUtils.radToDeg(sph.phi);
+    const { pos, tgt } = this.solveOrbit(az, el);
+    this.moveCamera(pos, tgt, animate);
+  }
+
+  solveOrbit(azDeg, elDeg) {
+    const az = THREE.MathUtils.degToRad(azDeg);
+    const el = THREE.MathUtils.degToRad(elDeg);
+    const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+    const right = new THREE.Vector3(0, 1, 0).cross(dir).normalize();
+    const up = dir.clone().cross(right).normalize();
+    return this.solveFit(dir, right, up, false);
+  }
+
+  solveTop() {
+    // looking straight down with +x as screen-up, so +z is screen-right
+    return this.solveFit(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), true);
+  }
+
+  /**
+   * Smallest distance along `dir` at which every corner of the terrain's bounds
+   * sits inside the frustum, for the current aspect ratio.
+   */
+  solveFit(dir, right, up, top) {
+    const { W, H, D } = this.dims;
+    const tgt = new THREE.Vector3(0, top ? 0 : H * 0.3, 0);
+    const tv = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const th = tv * this.camera.aspect;
+    const q = new THREE.Vector3();
+    let dist = 0;
+    for (const x of [-W / 2, W / 2]) {
+      for (const y of [0, H]) {
+        for (const z of [-D / 2, D / 2]) {
+          q.set(x, y, z).sub(tgt);
+          const need = q.dot(dir) + Math.max(Math.abs(q.dot(right)) / th, Math.abs(q.dot(up)) / tv);
+          if (need > dist) dist = need;
+        }
+      }
+    }
+    return { pos: tgt.clone().addScaledVector(dir, dist * 1.08), tgt };
+  }
+
+  moveCamera(pos, tgt, animate) {
     if (animate) {
       this.tween = {
         p0: this.camera.position.clone(),
@@ -443,10 +493,20 @@ export class Relief {
         dur: 650,
       };
     } else {
+      this.tween = null;
       this.camera.position.copy(pos);
       this.controls.target.copy(tgt);
       this.controls.update();
     }
+  }
+
+  setReverse(on) {
+    this.userReverse = !!on;
+    this.applyReverse();
+  }
+
+  applyReverse() {
+    this.uniforms.uReverse.value = this.userReverse !== this.viewFlip ? 1 : 0;
   }
 
   setAutoMove(on, speed) {
