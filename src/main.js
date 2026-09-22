@@ -4,7 +4,11 @@ import { PRESETS, DEFAULT_STOPS } from './presets.js';
 import { makeDemo } from './demo.js';
 import { imageLevels, imagePixels } from './shape.js';
 import { encodeWav } from './wav.js';
-import { LiveInput } from './live.js';
+import { LiveInput, freqMap } from './live.js';
+import { scramble } from './shared/scramble.js';
+import { wipeIn, wipeLink } from './shared/wipe.js';
+
+wipeIn();
 
 /* --------------------------------------------------------------- state -- */
 
@@ -75,12 +79,13 @@ function toast(msg) {
 }
 
 let busy = 0;
+let drawing = false; // the draw-in keeps the loading line up after the work is done
 function setBusy(on, label) {
   busy = Math.max(0, busy + (on ? 1 : -1));
   const el = $('loading');
-  el.hidden = busy === 0;
+  el.hidden = busy === 0 && !drawing;
   if (label) el.querySelector('.lbl').textContent = label;
-  if (busy === 0) el.querySelector('.bar i').style.width = '0%';
+  if (busy === 0 && !drawing) el.querySelector('.bar i').style.width = '0%';
 }
 const setProgress = (v) => {
   $('loading').querySelector('.bar i').style.width = `${Math.round(v * 100)}%`;
@@ -105,7 +110,7 @@ worker.onmessage = (e) => {
   const m = e.data;
   const job = pending.get(m.id);
   if (!job) return;
-  if (m.type === 'progress') { job.onProgress?.(m.value); return; }
+  if (m.type === 'progress') { job.onProgress?.(m.value, m); return; }
   pending.delete(m.id);
   if (m.type === 'error') job.reject(new Error(m.message));
   else job.resolve(m);
@@ -141,7 +146,7 @@ async function requestAnalysis() {
   if (!src.audioBuffer) return;
   if (analyzing) { analyzeQueued = true; return; }
   analyzing = true;
-  setBusy(true, 'Analyzing audio…');
+  setBusy(true, 'Analysing…');
   try {
     const r = await call(
       {
@@ -152,7 +157,10 @@ async function requestAnalysis() {
         },
       },
       [],
-      setProgress
+      (v, m) => {
+        setProgress(v);
+        if (m.size) $('loading').querySelector('.lbl').textContent = `Analysing · ${m.size}-point FFT`;
+      }
     );
     dataDims = { slices: r.slices, cols: r.cols };
     await applyShape();
@@ -181,6 +189,33 @@ function rebuildTerrain() {
   else requestAnalysis();
 }
 
+// A newly loaded source draws itself in, ridge by ridge, nearest first. Later
+// reshapes (dragging a slider) update in place instead.
+let introPending = false;
+
+async function drawIn() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const el = $('loading');
+  const bar = el.querySelector('.bar i');
+  drawing = true;
+  el.hidden = false;
+  el.querySelector('.lbl').textContent = `Drawing ${relief.disp.ridges} ridges`;
+  bar.style.width = '0%';
+  const done = relief.playIntro();
+  const tick = () => {
+    if (!relief.intro) return;
+    bar.style.width = `${Math.round(relief.intro.progress * 100)}%`;
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  await done;
+  drawing = false;
+  if (busy === 0) {
+    el.hidden = true;
+    bar.style.width = '0%';
+  }
+}
+
 // Shaping runs in the worker against the resident matrix, so dragging a slider
 // never blocks the main thread and nothing large is copied between them.
 let shaping = false;
@@ -201,6 +236,7 @@ async function applyShape() {
       },
     });
     relief.setData(r.heights, dataDims.slices, dataDims.cols);
+    if (introPending) { introPending = false; drawIn(); }
   } catch (err) {
     toast(`Shaping failed: ${err.message}`);
   } finally {
@@ -325,11 +361,12 @@ function loadDemo() {
   adoptAudio(samplesToBuffer(samples, sampleRate), src.name);
   showImageControls(false);
   applyFit();
+  introPending = true;
   requestAnalysis();
 }
 
 async function loadAudioFile(file) {
-  setBusy(true, 'Decoding audio…');
+  setBusy(true, `Decoding ${file.name}`);
   try {
     const ab = await file.arrayBuffer();
     const buffer = await ensureCtx().decodeAudioData(ab);
@@ -341,6 +378,7 @@ async function loadAudioFile(file) {
     adoptAudio(buffer, file.name);
     showImageControls(false);
     applyFit();
+    introPending = true;
     await requestAnalysis();
   } catch (err) {
     toast(`Could not decode ${file.name}: ${err.message}`);
@@ -369,6 +407,7 @@ async function loadImageFile(file) {
     showImageControls(true);
     updateTransportEnabled();
     refreshGui();
+    introPending = true;
     buildImageTerrain();
   } catch (err) {
     toast(`Could not read image: ${err.message}`);
@@ -626,8 +665,75 @@ function updateTransportEnabled() {
   $('tdur').textContent = fmtTime(src.duration);
 }
 
+/* ------------------------------------------------------ hover readout -- */
+
+// What is under the pointer: frequency, time and level. Mouse only, and hidden
+// while orbiting, drawing in or presenting.
+const readout = $('readout');
+let hoverEvt = null;
+
+function hideReadout() {
+  if (!readout.hidden) readout.hidden = true;
+  relief.setHover(-1);
+}
+
+$('view').addEventListener('pointermove', (e) => {
+  hoverEvt = e.pointerType === 'mouse' && e.buttons === 0 ? e : null;
+  if (!hoverEvt) hideReadout();
+});
+$('view').addEventListener('pointerleave', () => { hoverEvt = null; hideReadout(); });
+$('view').addEventListener('pointerdown', () => { hoverEvt = null; hideReadout(); });
+
+const fmtHz = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`);
+const signed = (n) => (n < 0 ? `−${Math.abs(n)}` : String(n));
+function fmtTimeFine(t) {
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`;
+}
+
+function updateReadout() {
+  if (!hoverEvt) return;
+  if (presenting || relief.userActive || relief.introActive || !dataDims || !src.kind) { hideReadout(); return; }
+  const view = $('view').getBoundingClientRect();
+  const hit = relief.probe(
+    ((hoverEvt.clientX - view.left) / view.width) * 2 - 1,
+    -((hoverEvt.clientY - view.top) / view.height) * 2 + 1
+  );
+  if (!hit) { hideReadout(); return; }
+
+  const sr = (src.kind === 'live' ? live.ctx && live.ctx.sampleRate : src.audioBuffer && src.audioBuffer.sampleRate) || 44100;
+  const fmax = Math.min(S.fmax, sr * 0.4975);
+  const fmin = Math.max(2, Math.min(S.fmin, fmax * 0.5));
+  const f = freqMap(S.scale, fmin, fmax)(Math.min(1, Math.max(0, hit.u)));
+  const parts = [`<b>${fmtHz(f)}</b>`];
+
+  const u = relief.uniforms;
+  if (src.kind === 'live') {
+    parts.push(`${signed(-Number(((1 - hit.v) * S.windowSec).toFixed(1)))} s`);
+  } else if (src.duration > 0) {
+    parts.push(fmtTimeFine((u.uWinStart.value + hit.v * u.uWinSpan.value) * src.duration));
+  }
+
+  // undo the shaping's contrast curve to get back to the level it drew
+  const level = S.cut + (1 - S.cut) * Math.pow(Math.max(0, hit.h), 1 / Math.max(0.05, S.gamma));
+  const isDb = src.kind !== 'image' || S.terrainFrom === 'Synthesized audio';
+  if (!isDb) parts.push(`${Math.round(level * 100)}% bright`);
+  else if (hit.h <= 0.001) parts.push(`≤ ${signed(-Math.round(S.range))} dB`);
+  else parts.push(`${signed(Math.round((level - 1) * S.range))} dB`);
+
+  readout.innerHTML = parts.join('<i>·</i>');
+  readout.hidden = false;
+  const w = readout.offsetWidth;
+  const x = hoverEvt.clientX + 16 + w > window.innerWidth - 8 ? hoverEvt.clientX - 16 - w : hoverEvt.clientX + 16;
+  readout.style.left = `${x}px`;
+  readout.style.top = `${Math.max(8, hoverEvt.clientY - 36)}px`;
+  relief.setHover(hit.v);
+}
+
 let seeking = false;
 relief.onFrame = () => {
+  updateReadout();
   if (src.kind === 'live' && live.active && dataDims) {
     const now = performance.now();
     const dt = Math.min(0.25, (now - liveLast) / 1000);
@@ -1042,6 +1148,13 @@ window.addEventListener('pointermove', () => {
 });
 
 /* ----------------------------------------------------------------- go --- */
+
+// Level-meter scramble on the top bar's labels
+scramble(document.querySelector('.brand-txt'), document.querySelector('.brand'));
+scramble($('btn-open'));
+scramble($('btn-reset'));
+scramble($('btn-present'));
+wipeLink(document.querySelector('.brand'));
 
 // Starts empty on purpose: no sample audio is loaded until you give it one.
 buildGui();

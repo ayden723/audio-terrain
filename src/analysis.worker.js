@@ -233,7 +233,7 @@ function analyze(p, id) {
         const now = performance.now();
         if (now - lastPost > 120) {
           lastPost = now;
-          self.postMessage({ type: 'progress', id, value: done / totalFrames });
+          self.postMessage({ type: 'progress', id, value: done / totalFrames, size: N });
         }
       }
       const base = k * cols;

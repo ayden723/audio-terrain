@@ -13,6 +13,7 @@ uniform vec2 uDataSize;
 uniform float uW, uHt, uD, uReverse, uWinStart, uWinSpan, uSkirt;
 uniform vec3 uLightDir;
 uniform float uShadowStr, uShadowLen, uShadowSteps;
+uniform float uIntro, uIntroNear;
 
 varying vec3 vN, vView;
 varying float vH, vCrest, vY, vV, vDist, vShadow;
@@ -30,7 +31,12 @@ void main() {
   float dv = 0.5 / uDataSize.y + (uWinStart + v * uWinSpan) * (1.0 - 1.0 / uDataSize.y);
 
   float h = hAt(vec2(u, dv));
-  float crest = h * uHt;
+  // Draw-in: ridges rise one after another, starting with the one nearest the
+  // camera. At uIntro = 1 every ridge is at full height.
+  float rank = uIntroNear > 0.5 ? 1.0 - v : v;
+  float grow = clamp((uIntro * 1.35 - rank) / 0.35, 0.0, 1.0);
+  grow = grow * grow * (3.0 - 2.0 * grow);
+  float crest = h * uHt * grow;
   float baseY = uSkirt > 0.0 ? max(0.0, crest - uSkirt * uHt) : 0.0;
   float y = mix(baseY, crest, top);
 
@@ -80,7 +86,7 @@ uniform vec3 uBg, uShadow, uHighlight, uLine, uAccent, uLightDir;
 uniform vec3 uStops[5];
 uniform float uColorMode, uAmbient, uFillMix, uLineW, uLineOpacity, uRim;
 uniform float uCrestShade, uCrestLen, uBaseFade, uFog, uFogNear, uFogFar;
-uniform float uPlay, uPlayMode, uRidges, uSurface, uHt;
+uniform float uPlay, uPlayMode, uRidges, uSurface, uHt, uHoverV;
 
 varying vec3 vN, vView;
 varying float vH, vCrest, vY, vV, vDist, vShadow;
@@ -143,6 +149,14 @@ void main() {
     float near = 1.0 - smoothstep(0.5, 1.8, dd);
     float atCrest = 1.0 - smoothstep(0.0, 0.12 * uHt, vCrest);
     col = mix(col, uAccent, near * atCrest * 0.9);
+  }
+
+  // the ridge under the pointer, for the hover readout
+  if (uHoverV >= 0.0) {
+    float dh = abs(vV - uHoverV) * (rg - 1.0);
+    float nearH = 1.0 - smoothstep(0.25, 1.1, dh);
+    float atCrestH = 1.0 - smoothstep(0.0, 0.1 * uHt, vCrest);
+    col = mix(col, uLine, nearH * atCrestH * 0.75);
   }
 
   if (uBaseFade > 0.0) col = mix(uBg, col, smoothstep(0.0, uBaseFade * uHt, vY));
@@ -235,7 +249,14 @@ export class Relief {
       uFogFar: { value: 40 },
       uPlay: { value: 0 },
       uPlayMode: { value: 0 },
+      uHoverV: { value: -1 },
+      uIntro: { value: 1 },
+      uIntroNear: { value: 1 },
     };
+    this.intro = null;
+    this.heights = null;
+    this._ray = new THREE.Raycaster();
+    this._ndc = new THREE.Vector2();
 
     this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
@@ -292,6 +313,7 @@ export class Relief {
       this.tex.image.data.set(h);
     }
     this.tex.needsUpdate = true;
+    this.heights = h;
     this.dataSlices = slices;
     this.dataCols = cols;
     if (this.disp.cols !== cols || !this.mesh) {
@@ -537,6 +559,125 @@ export class Relief {
     this.camera.position.copy(this.controls.target).add(off);
   }
 
+  /* ------------------------------------------------------ draw-in ----- */
+
+  /** Raise the ridges one after another, nearest first. Resolves when done. */
+  playIntro(duration = 1100) {
+    // which end of the terrain faces the camera: v = 1 lies at +z unless time is reversed
+    const dz = this.camera.position.z - this.controls.target.z;
+    const v1z = this.uniforms.uReverse.value > 0.5 ? -1 : 1;
+    this.uniforms.uIntroNear.value = dz * v1z >= 0 ? 1 : 0;
+    this.uniforms.uIntro.value = 0;
+    if (this.intro) this.intro.resolve();
+    return new Promise((resolve) => {
+      this.intro = { start: performance.now(), duration, resolve, progress: 0 };
+    });
+  }
+
+  get introActive() {
+    return !!this.intro;
+  }
+
+  /* ------------------------------------------------------- probing ----- */
+
+  /** Height (0..1, as shaped) at a terrain position; u across, v along time. */
+  heightAt(u, v) {
+    const h = this.heights;
+    const S = this.dataSlices;
+    const C = this.dataCols;
+    if (!h || !S || !C) return 0;
+    const ws = this.uniforms.uWinStart.value;
+    const wsp = this.uniforms.uWinSpan.value;
+    // same texel-centre mapping as the vertex shader
+    const dv = 0.5 / S + (ws + v * wsp) * (1 - 1 / S);
+    const x = Math.min(C - 1, Math.max(0, u * C - 0.5));
+    const y = Math.min(S - 1, Math.max(0, dv * S - 0.5));
+    const x0 = Math.floor(x), y0 = Math.floor(y);
+    const x1 = Math.min(C - 1, x0 + 1), y1 = Math.min(S - 1, y0 + 1);
+    const fx = x - x0, fy = y - y0;
+    const a = h[y0 * C + x0] * (1 - fx) + h[y0 * C + x1] * fx;
+    const b = h[y1 * C + x0] * (1 - fx) + h[y1 * C + x1] * fx;
+    return a * (1 - fy) + b * fy;
+  }
+
+  /**
+   * What the pointer is over, from normalised device coordinates. Heights live
+   * in a texture, so this repeats the shader's geometry on the CPU instead of
+   * raycasting the (flat) mesh. Returns { u, v, h } or null.
+   */
+  probe(ndcX, ndcY) {
+    if (!this.heights || !this.mesh || this.dataCols < 2) return null;
+    this._ray.setFromCamera(this._ndc.set(ndcX, ndcY), this.camera);
+    const o = this._ray.ray.origin;
+    const d = this._ray.ray.direction;
+    const { W, H, D } = this.dims;
+    const rev = this.uniforms.uReverse.value > 0.5;
+    const zToV = (z) => { const vv = z / D + 0.5; return rev ? 1 - vv : vv; };
+
+    // Ridges are upright curtains at fixed depths: test each one exactly.
+    if (this.mode !== 'surface' && Math.abs(d.z) > 1e-6) {
+      const R = this.disp.ridges;
+      const skirt = this.uniforms.uSkirt.value;
+      let best = null;
+      for (let k = 0; k < R; k++) {
+        const v = R > 1 ? k / (R - 1) : 0.5;
+        const z = ((rev ? 1 - v : v) - 0.5) * D;
+        const t = (z - o.z) / d.z;
+        if (t <= 0 || (best && t >= best.t)) continue;
+        const u = (o.x + t * d.x) / W + 0.5;
+        if (u < 0 || u > 1) continue;
+        const y = o.y + t * d.y;
+        const hh = this.heightAt(u, v);
+        const crest = hh * H;
+        const base = skirt > 0 ? Math.max(0, crest - skirt * H) : 0;
+        if (y <= crest + 1e-3 && y >= base - 1e-3) best = { t, u, v, h: hh };
+      }
+      if (best) return best;
+    }
+
+    // Otherwise march the height field inside the terrain's bounding box.
+    let t0 = 0, t1 = Infinity;
+    const lo = [-W / 2, 0, -D / 2], hi = [W / 2, H, D / 2];
+    const oo = [o.x, o.y, o.z], dd = [d.x, d.y, d.z];
+    for (let i = 0; i < 3; i++) {
+      if (Math.abs(dd[i]) < 1e-9) {
+        if (oo[i] < lo[i] || oo[i] > hi[i]) return null;
+        continue;
+      }
+      let a = (lo[i] - oo[i]) / dd[i], b = (hi[i] - oo[i]) / dd[i];
+      if (a > b) [a, b] = [b, a];
+      t0 = Math.max(t0, a);
+      t1 = Math.min(t1, b);
+    }
+    if (!(t1 > t0)) return null;
+    const under = (t) => {
+      const x = o.x + t * d.x, y = o.y + t * d.y, z = o.z + t * d.z;
+      return y <= this.heightAt(x / W + 0.5, zToV(z)) * H;
+    };
+    const STEPS = 240;
+    let prev = t0;
+    for (let i = 1; i <= STEPS; i++) {
+      const t = t0 + ((t1 - t0) * i) / STEPS;
+      if (under(t)) {
+        let a = prev, b = t;
+        for (let j = 0; j < 8; j++) {
+          const m = (a + b) / 2;
+          if (under(m)) b = m; else a = m;
+        }
+        const u = (o.x + b * d.x) / W + 0.5;
+        const v = zToV(o.z + b * d.z);
+        return { t: b, u, v, h: this.heightAt(u, v) };
+      }
+      prev = t;
+    }
+    return null;
+  }
+
+  /** Highlight the ridge at v (0..1), or none with v < 0. */
+  setHover(v) {
+    this.uniforms.uHoverV.value = v;
+  }
+
   resize() {
     const el = this.canvas.parentElement;
     const w = Math.max(1, el.clientWidth);
@@ -571,6 +712,16 @@ export class Relief {
     const dist = this.camera.position.distanceTo(this.controls.target);
     this.uniforms.uFogNear.value = dist - ext * 0.3;
     this.uniforms.uFogFar.value = dist + ext * 0.8;
+
+    if (this.intro) {
+      const p = Math.min(1, (now - this.intro.start) / this.intro.duration);
+      this.intro.progress = p;
+      this.uniforms.uIntro.value = 1 - Math.pow(1 - p, 2); // ease out
+      if (p >= 1) {
+        this.intro.resolve();
+        this.intro = null;
+      }
+    }
 
     if (this.onFrame) this.onFrame();
     this.renderer.render(this.scene, this.camera);

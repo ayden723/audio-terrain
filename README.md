@@ -128,6 +128,21 @@ of it together. The motion is applied as small per-frame changes around whatever
 framing you chose, eases in instead of starting abruptly, and hands the camera
 back the moment you drag, resuming a couple of seconds after you let go.
 
+### Hover readout
+
+Point at the terrain with a mouse and a small readout shows what is under the
+pointer: frequency, time (or seconds ago, for live input) and level in dB below
+the loudest point, with that moment's ridge highlighted. It hides while you
+orbit, while a file draws in and in presentation mode. Heights live in a
+texture, so `Relief.probe()` repeats the shader's geometry on the CPU rather
+than raycasting the flat mesh.
+
+### Loading
+
+Loading names each step (decoding, then each FFT size as it runs) and a newly
+loaded source draws itself in: ridges rise one after another, nearest first.
+Changing a setting afterwards updates the terrain in place.
+
 ### Reset
 
 **Reset settings** restores every look and analysis setting to its default
@@ -171,7 +186,10 @@ Three things keep a full-length song workable:
 
 A 4-minute track measures ~11s to load, analyse and draw, holding 49-62fps.
 
-- `index.html`, `src/home/` — the Sound Labs home page and its animated background
+- `index.html`, `src/home/` — the Sound Labs home page: animated background,
+  loudness-weight headline and the card's pixel dissolve
+- `src/shared/` — the level-meter label scramble and the scanline wipe between pages
+- `public/wipe-in.js` — covers a page before first paint when it is reached through the wipe
 - `terrain/index.html` — the spectrogram page
 - `public/_headers` — security headers applied to every response
 - `src/analysis.worker.js` — FFT, multi-resolution STFT, additive synthesis

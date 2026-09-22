@@ -4,12 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-  <!-- Security: only our own script (the background shader) and styles. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <!-- Security: only our own scripts, styles and fonts. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 
   <title>Sound Labs by ayden</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0b0d'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23fff'/%3E%3Crect x='7' y='3' width='2' height='10' fill='%23fff'/%3E%3Crect x='11' y='5' width='2' height='6' fill='%23fff'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/src/home/home.css" />
+  <!-- Covers the page before first paint when arriving through the scanline wipe. -->
+  <script src="/wipe-in.js"></script>
 </head>
 <body>
 
@@ -50,6 +52,6 @@
     <p>Everything runs in your browser. Your audio never leaves your machine.</p>
   </footer>
 
-  <script type="module" src="/src/home/bg.js"></script>
+  <script type="module" src="/src/home/main.js"></script>
 </body>
 </html>
