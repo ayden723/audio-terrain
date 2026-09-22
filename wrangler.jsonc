@@ -1,15 +1,22 @@
 {
-  // Cloudflare Workers config for this static-assets-only site.
-  // Everything in the repo root (minus .assetsignore entries) is served
-  // as static files; there is no server-side Worker code.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Static-assets-only Worker: there is no server code, so no `main` entry.
+  //
+  // Cloudflare Workers Builds deploys every push to main by running
+  // `npx wrangler deploy`, which runs the build below first, so the site
+  // always matches the source in this repo.
   //
   // IMPORTANT: in the Cloudflare dashboard, Workers Builds > Settings, the
   // "Deploy command" must be:   npx wrangler deploy
   // (NOT `wrangler versions upload` — that uploads a version but never
   //  promotes it to production, so the live site never changes.)
   "name": "audio-terrain",
-  "compatibility_date": "2026-07-01",
+  "compatibility_date": "2026-09-11",
+  "build": {
+    "command": "npm run build"
+  },
   "assets": {
-    "directory": "./"
-  }
+    "directory": "./dist"
+  },
+  "observability": { "enabled": true }
 }
