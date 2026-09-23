@@ -3,7 +3,8 @@
 A 3D spectrogram built for looks rather than measurement: layered ridges of sound
 rendered as terrain you can orbit, in the style of an old plotted relief map.
 It is part of **Sound Labs**: the home page at `/` (with the animated background)
-links to the spectrogram at `/terrain/`.
+links to two tools, this spectrogram at `/terrain/` and [Ripples](#ripples) at
+`/ripples/`.
 
 ## Running it
 
@@ -140,6 +141,30 @@ Changing a setting afterwards updates the terrain in place.
 without unloading your source, then offers **Undo** for a few seconds — including
 the camera position.
 
+## Ripples
+
+`/ripples/` is the second tool on the home page: a dark synth played from the
+computer keyboard, over a round pool that answers it. It is kept small so
+anything you play sounds good together:
+
+- **A S D F G** play five chords of the current key, a progression that works
+  in any order (Dm, B♭, F, C, Gm in D minor), voiced close together over a bass
+  note so moving between them is smooth.
+- **H J K L ;** play the five notes of the key's pentatonic scale, which fit
+  over every one of those chords.
+- Left and right arrows change key; the panel switches between a minor and a
+  major mood. The on-screen keycaps play too, for touch screens.
+- Each chord drops a stone and retunes the eight buoys to its notes, so the
+  ripples echo the chord as an arpeggio, quieter, as they pass each buoy.
+
+The synth (`src/ripples/synth.js`) is detuned sawtooths through a low-pass
+whose envelope opens on each attack, with gentle saturation on the summed bus,
+a clean sub under the bass note and an optional soft thump. Everything is
+synthesised; there are no samples. The water is a 2D wave equation on the CPU (`sim.js`); the light on
+the floor (`pool.js`) uses Evan Wallace's caustics method, as in Amanda
+Ghassaei's gpu-io wave2d example, run once per colour channel so the light
+splits into fringes.
+
 ## Controls worth knowing
 
 Most controls live under **Advanced**; the panel itself keeps only the ones that
@@ -177,8 +202,9 @@ Three things keep a full-length song workable:
 
 A 4-minute track measures ~11s to load, analyse and draw, holding 49-62fps.
 
-- `index.html`, `src/home/` — the Sound Labs home page: animated background
-  and the card's pixel dissolve
+- `index.html`, `src/home/` — the Sound Labs home page: animated background,
+  the Audio Terrain card's pixel dissolve and the Ripples card's rings
+- `ripples/index.html`, `src/ripples/` — Ripples
 - `src/shared/` — the level-meter label scramble and the scanline wipe between pages
 - `public/wipe-in.js` — covers a page before first paint when it is reached through the wipe
 - `terrain/index.html` — the spectrogram page

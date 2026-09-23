@@ -115,11 +115,11 @@ body { background: transparent; }
 }
 
 .tools-grid {
-  max-width: 820px;
+  max-width: 1400px;
   margin: 0 auto;
 
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, 1fr);
   gap: 2rem;
 }
 
@@ -191,6 +191,10 @@ body { background: transparent; }
   letter-spacing: .12em;
 
   text-transform: uppercase;
+
+  /* one line: the label is split into per-letter spans for its hover
+     scramble, and subpixel rounding could otherwise wrap its last word */
+  white-space: nowrap;
 }
 
 .arrow {
@@ -237,6 +241,7 @@ body { background: transparent; }
 ========================================== */
 
 .tile-terrain { background: #C25A22; color: #ffe4d2; }  /* deep orange */
+.tile-ripples { background: #1B4868; color: #d3ecff; }  /* deep water blue */
 
 /* ==========================================
    FOOTER
@@ -277,6 +282,7 @@ body { background: transparent; }
    transform and break the hover lift */
 .tool-card { animation: rise .6s ease backwards; }
 .tools-grid a:nth-child(1) { animation-delay: .22s; }
+.tools-grid a:nth-child(2) { animation-delay: .30s; }
 .site-footer { animation: rise .6s ease .62s both; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -286,6 +292,10 @@ body { background: transparent; }
 /* ==========================================
    RESPONSIVE
 ========================================== */
+
+@media (max-width: 900px) {
+  .tools-grid { grid-template-columns: 1fr; max-width: 820px; }
+}
 
 @media (max-width: 700px) {
   .hero { padding-top: 3rem; }

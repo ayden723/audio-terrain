@@ -11,11 +11,12 @@ export default defineConfig({
     port: process.env.PORT ? Number(process.env.PORT) : undefined,
   },
   build: {
-    // Two pages: the home page at / and the spectrogram at /terrain/.
+    // The home page at /, and one page per tool beside it.
     rolldownOptions: {
       input: {
         home: 'index.html',
         terrain: 'terrain/index.html',
+        ripples: 'ripples/index.html',
       },
     },
   },
