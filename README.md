@@ -3,7 +3,8 @@
 A 3D spectrogram built for looks rather than measurement: layered ridges of sound
 rendered as terrain you can orbit, in the style of an old plotted relief map.
 It is part of **Sound Labs**: the home page at `/` (with the animated background)
-links to the spectrogram at `/terrain/`.
+links to two tools, this spectrogram at `/terrain/` and [Ripples](#ripples) at
+`/ripples/`.
 
 ## Running it
 
@@ -140,9 +141,9 @@ Changing a setting afterwards updates the terrain in place.
 without unloading your source, then offers **Undo** for a few seconds — including
 the camera position.
 
-## Ripples (test page)
+## Ripples
 
-`/ripples/` is a separate, unlinked test page: a dark synth played from the
+`/ripples/` is the second tool on the home page: a dark synth played from the
 computer keyboard, over a round pool that answers it. It is kept small so
 anything you play sounds good together:
 
@@ -201,8 +202,9 @@ Three things keep a full-length song workable:
 
 A 4-minute track measures ~11s to load, analyse and draw, holding 49-62fps.
 
-- `index.html`, `src/home/` — the Sound Labs home page: animated background
-  and the card's pixel dissolve
+- `index.html`, `src/home/` — the Sound Labs home page: animated background,
+  the Audio Terrain card's pixel dissolve and the Ripples card's rings
+- `ripples/index.html`, `src/ripples/` — Ripples
 - `src/shared/` — the level-meter label scramble and the scanline wipe between pages
 - `public/wipe-in.js` — covers a page before first paint when it is reached through the wipe
 - `terrain/index.html` — the spectrogram page
