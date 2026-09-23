@@ -11,11 +11,12 @@ export default defineConfig({
     port: process.env.PORT ? Number(process.env.PORT) : undefined,
   },
   build: {
-    // Two pages: the home page at / and the spectrogram at /terrain/.
+    // The home page at /, the spectrogram at /terrain/ and test pages beside them.
     rolldownOptions: {
       input: {
         home: 'index.html',
         terrain: 'terrain/index.html',
+        caustics: 'caustics/index.html', // test page, not linked from home yet
       },
     },
   },

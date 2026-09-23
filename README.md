@@ -140,6 +140,16 @@ Changing a setting afterwards updates the terrain in place.
 without unloading your source, then offers **Undo** for a few seconds — including
 the camera position.
 
+## Caustics (test page)
+
+`/caustics/` is a separate, unlinked test page: a live, scrolling spectrogram
+drawn as a wireframe water surface, with light refracted through it onto a
+floor below. It plays a file (drop one anywhere) or listens to the microphone,
+and shows a gentle idle preview until then. The caustics follow Evan Wallace's
+method as used in Amanda Ghassaei's gpu-io wave2d example: a grid of light rays
+is bent by the surface normal and each small triangle's brightness is how much
+it shrank on the way to the floor. Code lives in `src/caustics/`.
+
 ## Controls worth knowing
 
 Most controls live under **Advanced**; the panel itself keeps only the ones that
