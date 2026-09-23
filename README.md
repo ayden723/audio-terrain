@@ -140,15 +140,19 @@ Changing a setting afterwards updates the terrain in place.
 without unloading your source, then offers **Undo** for a few seconds — including
 the camera position.
 
-## Caustics (test page)
+## Ripples (test page)
 
-`/caustics/` is a separate, unlinked test page: a live, scrolling spectrogram
-drawn as a wireframe water surface, with light refracted through it onto a
-floor below. It plays a file (drop one anywhere) or listens to the microphone,
-and shows a gentle idle preview until then. The caustics follow Evan Wallace's
-method as used in Amanda Ghassaei's gpu-io wave2d example: a grid of light rays
-is bent by the surface normal and each small triangle's brightness is how much
-it shrank on the way to the floor. Code lives in `src/caustics/`.
+`/ripples/` is a separate, unlinked test page: an instrument played by
+dropping stones into a round pool. Eight buoys float on the water, each tuned
+to a note of the chosen scale; a ripple rings every buoy it passes, so buoys
+nearer the drop sound first and the round wall sends each ring back for a
+quieter echo. Rain mode drops stones on its own.
+
+The water is a 2D wave equation on the CPU (`src/ripples/sim.js`), so the
+synth (`synth.js`) can read it directly. The light on the floor (`pool.js`)
+uses Evan Wallace's caustics method, as in Amanda Ghassaei's gpu-io wave2d
+example, run three times with slightly different refractive indices so the
+light splits into coloured fringes.
 
 ## Controls worth knowing
 

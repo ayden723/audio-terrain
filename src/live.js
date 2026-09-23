@@ -114,26 +114,7 @@ export class LiveInput {
     this.ctx = ctx;
     await ctx.resume();
 
-    this.wire(ctx.createMediaStreamSource(stream), true);
-    return this.label;
-  }
-
-  /**
-   * Analyse a node that is already playing (a file player's output) instead of
-   * capturing a device. The node keeps its own connections; only the analysers
-   * are attached to it, and detached again by stop().
-   */
-  async attach(ctx, node, label) {
-    this.stop();
-    this.ctx = ctx;
-    await ctx.resume();
-    this.label = label || 'audio';
-    this.wire(node, false);
-    return this.label;
-  }
-
-  wire(source, owned) {
-    const ctx = this.ctx;
+    const source = ctx.createMediaStreamSource(stream);
     const short = ctx.createAnalyser();
     const long = ctx.createAnalyser();
     short.fftSize = SHORT;
@@ -152,22 +133,19 @@ export class LiveInput {
     short.connect(mute);
     mute.connect(ctx.destination);
 
-    this.nodes = { source, short, long, mute, owned };
+    this.nodes = { source, short, long, mute };
     this.bufShort = new Float32Array(short.frequencyBinCount);
     this.bufLong = new Float32Array(long.frequencyBinCount);
     this.map = null;
     this.active = true;
+    return this.label;
   }
 
   stop() {
     if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
     if (this.nodes) {
-      const { source, short, long, mute, owned } = this.nodes;
-      if (owned) source.disconnect();
-      else {
-        source.disconnect(short);
-        source.disconnect(long);
-      }
+      const { source, short, long, mute } = this.nodes;
+      source.disconnect();
       short.disconnect();
       long.disconnect();
       mute.disconnect();

@@ -16,7 +16,7 @@ export default defineConfig({
       input: {
         home: 'index.html',
         terrain: 'terrain/index.html',
-        caustics: 'caustics/index.html', // test page, not linked from home yet
+        ripples: 'ripples/index.html', // test page, not linked from home yet
       },
     },
   },
