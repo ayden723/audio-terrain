@@ -2,16 +2,17 @@ import GUI from 'lil-gui';
 import * as THREE from 'three';
 import { RippleSim } from './sim.js';
 import { RippleSynth, DEFAULTS as SYNTH } from './synth.js';
-import { MODES, KEYS, ROWS, chordFor, keyLabel } from './chords.js';
+import { MOODS, KEYS, CHORD_KEYS, NOTE_KEYS, chordAt, noteAt, midiToHz, midiName, keyLabel } from './chords.js';
 import { PoolScene, LOOKS } from './pool.js';
 import { scramble } from '../shared/scramble.js';
 import { wipeIn, wipeLink } from '../shared/wipe.js';
 
 wipeIn();
 
-// Play chords on the letter keys and the water answers: each chord drops a
-// stone and retunes the buoys to its notes, so the ripples arpeggiate what
-// you play. Tapping the water works too.
+// Five chord keys and five note keys, all in one key so anything you play
+// fits. Each chord drops a stone and retunes the buoys to its notes, so the
+// ripples arpeggiate it; each note drops a smaller stone. Tapping the water
+// works too.
 
 const N = 160;
 const RADIUS = 0.47;
@@ -19,19 +20,18 @@ const STEPS_PER_SEC = 120;
 
 const S = {
   look: 'Ember',
-  mode: 'Minor',
+  mood: 'Minor',
   key: 'D',
-  octave: 0,
   speed: 0.22, // wave speed squared, in grid units per step
   life: 0.993, // energy kept per step
-  rain: 0.8, // drops per second while rain is on
+  rain: 0.6, // drops per second while rain is on
   height: 0.05,
   depth: 0.3,
   strength: 1,
   soft: 1.5,
   dispersion: 0.5,
   volume: 0.8,
-  reverb: 0.3,
+  reverb: 0.35,
   sensitivity: 4,
   ...SYNTH,
 };
@@ -51,8 +51,6 @@ const pool = new PoolScene($('view'), { n: N, radius: RADIUS, buoys: BUOYS });
 const synth = new RippleSynth();
 
 const keyIndex = () => KEYS.indexOf(S.key);
-const midiToHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
-const midiName = (m) => `${KEYS[((m % 12) + 12) % 12]}${Math.floor(m / 12) - 1}`;
 
 /* -------------------------------------------------------------- buoys -- */
 
@@ -63,6 +61,7 @@ let buoyNames = [];
 function tuneBuoys(chordNotes) {
   const pcs = [...new Set(chordNotes.map((n) => ((n % 12) + 12) % 12))];
   let m = 48 + (((chordNotes[0] % 12) + 12) % 12); // the root, in octave 3
+  if (m > 54) m -= 12;
   const out = [m];
   while (out.length < BUOYS.length) {
     m++;
@@ -72,7 +71,7 @@ function tuneBuoys(chordNotes) {
   buoyNames = out.map(midiName);
   synth.setBuoyNotes(out.map(midiToHz));
 }
-tuneBuoys(chordFor('triad', 0, S.mode, keyIndex(), 0).notes);
+tuneBuoys(chordAt(0, S.mood, keyIndex()).notes);
 
 /* -------------------------------------------------------------- sound -- */
 
@@ -99,37 +98,44 @@ function drop(u, v, amount, radius, loud) {
   synth.plip(loud, (u - 0.5) * 1.8);
 }
 
-/* ------------------------------------------------------------- chords -- */
+/* ------------------------------------------------------ chords, notes -- */
 
 const LAYOUT = new Map(); // code -> { kind, index }
-ROWS.forEach((row) => row.codes.forEach((code, index) => LAYOUT.set(code, { kind: row.kind, index })));
-const held = new Map(); // code -> chord
-let lastChord = '';
+CHORD_KEYS.forEach((code, index) => LAYOUT.set(code, { kind: 'chord', index }));
+NOTE_KEYS.forEach((code, index) => LAYOUT.set(code, { kind: 'note', index }));
+const held = new Map(); // code -> what it is playing
+let lastPlayed = '';
 
-function chordOf(code) {
+function thingOf(code) {
   const { kind, index } = LAYOUT.get(code);
-  return chordFor(kind, index, S.mode, keyIndex(), S.octave);
+  return kind === 'chord' ? chordAt(index, S.mood, keyIndex()) : noteAt(index, S.mood, keyIndex());
 }
 
 function press(code) {
   if (held.has(code)) return;
   startSound();
-  const chord = chordOf(code);
-  held.set(code, chord);
-  synth.chordOn(code, chord.freqs);
-  tuneBuoys(chord.notes);
-  // a stone for each chord, placed by its degree, so each chord ripples its own way
-  const a = -Math.PI / 2 + (chord.degree / 7) * Math.PI * 2 + 0.3;
-  const heavy = LAYOUT.get(code).kind === 'power';
-  sim.disturb(0.5 + 0.3 * Math.cos(a), 0.5 + 0.3 * Math.sin(a), heavy ? 0.02 : 0.016, heavy ? 1.3 : 1);
-  lastChord = chord.name;
+  const { kind, index } = LAYOUT.get(code);
+  const it = thingOf(code);
+  held.set(code, it);
+  if (kind === 'chord') {
+    synth.chordOn(code, it.notes.map(midiToHz));
+    tuneBuoys(it.notes);
+    // a stone for each chord, placed by which key it is, so each ripples its own way
+    const a = -Math.PI / 2 + (index / 5) * Math.PI * 2 + 0.3;
+    sim.disturb(0.5 + 0.28 * Math.cos(a), 0.5 + 0.28 * Math.sin(a), 0.016, 1);
+  } else {
+    synth.noteOn(code, midiToHz(it.note));
+    const a = -Math.PI / 2 + (index / 5) * Math.PI * 2;
+    sim.disturb(0.5 + 0.12 * Math.cos(a), 0.5 + 0.12 * Math.sin(a), 0.011, 0.5);
+  }
+  lastPlayed = it.name;
   capFor(code)?.classList.add('down');
 }
 
 function release(code) {
   if (!held.has(code)) return;
   held.delete(code);
-  synth.chordOff(code);
+  synth.noteOff(code);
   capFor(code)?.classList.remove('down');
 }
 
@@ -146,11 +152,9 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.repeat) return;
-  const shift = { ArrowUp: ['octave', 1], ArrowDown: ['octave', -1], ArrowRight: ['key', 1], ArrowLeft: ['key', -1] }[e.code];
-  if (shift) {
+  if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
     e.preventDefault();
-    if (shift[0] === 'octave') S.octave = Math.max(-2, Math.min(1, S.octave + shift[1]));
-    else S.key = KEYS[(keyIndex() + shift[1] + 12) % 12];
+    S.key = KEYS[(keyIndex() + (e.code === 'ArrowRight' ? 1 : -1) + 12) % 12];
     gui.controllersRecursive().forEach((c) => c.updateDisplay());
     relabel();
     return;
@@ -167,17 +171,16 @@ window.addEventListener('blur', releaseAll);
 
 /* ------------------------------------------------ on-screen keyboard -- */
 
-const ROW_NAMES = { seventh: '7ths', triad: 'chords', power: 'power' };
 const caps = new Map();
 const keysEl = $('keys');
-ROWS.forEach((row) => {
+[['chord', 'chords', CHORD_KEYS], ['note', 'notes', NOTE_KEYS]].forEach(([kind, label, codes]) => {
   const r = document.createElement('div');
-  r.className = `row row-${row.kind}`;
+  r.className = `row row-${kind}`;
   const tag = document.createElement('span');
   tag.className = 'row-name';
-  tag.textContent = ROW_NAMES[row.kind];
+  tag.textContent = label;
   r.appendChild(tag);
-  row.codes.forEach((code) => {
+  codes.forEach((code) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'cap';
@@ -196,12 +199,12 @@ const capFor = (code) => caps.get(code);
 
 function relabel() {
   caps.forEach((b, code) => {
-    const c = chordOf(code);
-    b.querySelector('.c').textContent = c.name;
-    b.title = `${c.name} (${keyLabel(code)})`;
+    const it = thingOf(code);
+    const name = LAYOUT.get(code).kind === 'note' ? it.name.replace(/\d+$/, '') : it.name;
+    b.querySelector('.c').textContent = name;
+    b.title = `${it.name} (${keyLabel(code)})`;
   });
-  const o = S.octave === 0 ? '' : ` · oct ${S.octave > 0 ? '+' : ''}${S.octave}`;
-  $('keyname').textContent = `${S.key} ${S.mode.toLowerCase()}${o}`;
+  $('keyname').textContent = `${S.key} ${S.mood.toLowerCase()}`;
 }
 relabel();
 
@@ -300,12 +303,12 @@ pool.onFrame = () => {
   synth.update(levels, tilts);
   pool.updateBuoys(heights, levels);
 
-  const chords = [...held.values()].map((c) => c.name);
+  const playing = [...held.values()].map((c) => c.name);
   let status;
-  if (!synth.started) status = 'play chords on your keyboard, or tap the water';
-  else if (chords.length) status = chords.map((c) => `<b>${c}</b>`).join(' ') + (ringing.length ? ` · ${ringing.join(' ')}` : '');
+  if (!synth.started) status = 'chords on A S D F G, notes on H J K L ;';
+  else if (playing.length) status = playing.map((c) => `<b>${c}</b>`).join(' ') + (ringing.length ? ` · ${ringing.join(' ')}` : '');
   else if (ringing.length) status = ringing.join(' ');
-  else status = lastChord ? `last: ${lastChord}` : '';
+  else status = lastPlayed ? `last: ${lastPlayed}` : '';
   if (status !== statusShown) {
     statusShown = status;
     $('status').innerHTML = status;
@@ -323,17 +326,16 @@ const applySynth = () => synth.set({
 
 const gui = new GUI({ container: $('panel'), title: 'Ripples' });
 gui.add(S, 'look', Object.keys(LOOKS)).name('Look').onChange((v) => pool.setLook(v));
-const fKeys = gui.addFolder('Chords');
+const fKeys = gui.addFolder('Key');
 fKeys.add(S, 'key', KEYS).name('Key (← →)').onChange(relabel);
-fKeys.add(S, 'mode', Object.keys(MODES)).name('Mode').onChange(relabel);
-fKeys.add(S, 'octave', -2, 1, 1).name('Octave (↑ ↓)').onChange(relabel);
+fKeys.add(S, 'mood', Object.keys(MOODS)).name('Mood').onChange(relabel);
 const fSynth = gui.addFolder('Synth');
-fSynth.add(S, 'drive', 0, 1, 0.01).name('Drive').onChange(applySynth);
-fSynth.add(S, 'cutoff', 150, 4000, 10).name('Filter').onChange(applySynth);
-fSynth.add(S, 'resonance', 0.5, 18, 0.1).name('Resonance').onChange(applySynth);
-fSynth.add(S, 'detune', 0, 40, 1).name('Detune (cents)').onChange(applySynth);
+fSynth.add(S, 'drive', 0, 1, 0.01).name('Grit').onChange(applySynth);
+fSynth.add(S, 'cutoff', 300, 5000, 10).name('Brightness').onChange(applySynth);
+fSynth.add(S, 'resonance', 0.5, 10, 0.1).name('Resonance').onChange(applySynth);
+fSynth.add(S, 'detune', 0, 30, 1).name('Detune (cents)').onChange(applySynth);
 fSynth.add(S, 'sub', 0, 1.2, 0.01).name('Sub').onChange(applySynth);
-fSynth.add(S, 'punch', 0, 1.2, 0.01).name('Punch').onChange(applySynth);
+fSynth.add(S, 'punch', 0, 1, 0.01).name('Thump').onChange(applySynth);
 fSynth.add(S, 'release', 0.05, 3, 0.01).name('Release (s)').onChange(applySynth);
 fSynth.add(S, 'volume', 0, 1.2, 0.01).name('Volume').onChange((v) => synth.setVolume(v));
 fSynth.add(S, 'reverb', 0, 1, 0.01).name('Reverb').onChange((v) => synth.setReverb(v));

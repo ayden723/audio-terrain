@@ -142,21 +142,24 @@ the camera position.
 
 ## Ripples (test page)
 
-`/ripples/` is a separate, unlinked test page: a dark, distorted synth played
-from the computer keyboard, over a round pool that answers it.
+`/ripples/` is a separate, unlinked test page: a dark synth played from the
+computer keyboard, over a round pool that answers it. It is kept small so
+anything you play sounds good together:
 
-- **Home row** (A to K) plays the triads of the current key, the **top row**
-  (Q to U) the same degrees as seventh chords, and the **bottom row** (Z to M)
-  power chords an octave down. Arrow keys change key (left, right) and octave
-  (up, down); the on-screen keycaps play too, for touch screens.
+- **A S D F G** play five chords of the current key, a progression that works
+  in any order (Dm, B♭, F, C, Gm in D minor), voiced close together over a bass
+  note so moving between them is smooth.
+- **H J K L ;** play the five notes of the key's pentatonic scale, which fit
+  over every one of those chords.
+- Left and right arrows change key; the panel switches between a minor and a
+  major mood. The on-screen keycaps play too, for touch screens.
 - Each chord drops a stone and retunes the eight buoys to its notes, so the
-  ripples arpeggiate the chord, quieter, as they pass each buoy. Tapping the
-  water or letting it rain rings them too.
+  ripples echo the chord as an arpeggio, quieter, as they pass each buoy.
 
-The synth (`src/ripples/synth.js`) is detuned sawtooths through a resonant
-low-pass with a fast envelope, summed into one overdriven bus, with a clean
-sub and an 808-style thump beside it. Everything is synthesised; there are no
-samples. The water is a 2D wave equation on the CPU (`sim.js`); the light on
+The synth (`src/ripples/synth.js`) is detuned sawtooths through a low-pass
+whose envelope opens on each attack, with gentle saturation on the summed bus,
+a clean sub under the bass note and an optional soft thump. Everything is
+synthesised; there are no samples. The water is a 2D wave equation on the CPU (`sim.js`); the light on
 the floor (`pool.js`) uses Evan Wallace's caustics method, as in Amanda
 Ghassaei's gpu-io wave2d example, run once per colour channel so the light
 splits into fringes.

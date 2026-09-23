@@ -131,8 +131,6 @@ html, body {
 .deck-hint { opacity: 0.55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #keys { display: grid; gap: 5px; }
 .row { display: flex; gap: 5px; align-items: center; }
-.row-triad { padding-left: 14px; }
-.row-power { padding-left: 28px; }
 .row-name {
   width: 44px;
   flex: none;
@@ -142,8 +140,8 @@ html, body {
   opacity: 0.45;
 }
 .cap {
-  width: 52px;
-  height: 40px;
+  width: 62px;
+  height: 46px;
   flex: none;
   display: grid;
   grid-template-rows: auto 1fr;
@@ -163,7 +161,8 @@ html, body {
 }
 .cap .k { font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; opacity: 0.5; }
 .cap .c { font-size: 12px; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
-.row-power .cap { border-color: rgba(236, 227, 210, 0.26); }
+.row-chord .cap { border-color: rgba(236, 227, 210, 0.26); }
+.row-chord .cap .c { font-size: 14px; }
 .cap:hover { border-color: rgba(236, 227, 210, 0.45); }
 .cap.down {
   background: var(--accent);
@@ -181,7 +180,5 @@ html, body {
   #status { flex-basis: 100%; }
   .deck-hint { display: none; }
   .row-name { display: none; }
-  .row-triad, .row-power { padding-left: 0; }
-  .cap { width: calc((100vw - 16px - 24px - 7 * 5px) / 8); min-width: 0; height: 44px; padding: 4px; }
-  .cap .c { font-size: 10.5px; }
+  .cap { width: calc((100vw - 16px - 24px - 4 * 5px) / 5); min-width: 0; height: 50px; padding: 5px 6px; }
 }
