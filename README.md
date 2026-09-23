@@ -142,17 +142,24 @@ the camera position.
 
 ## Ripples (test page)
 
-`/ripples/` is a separate, unlinked test page: an instrument played by
-dropping stones into a round pool. Eight buoys float on the water, each tuned
-to a note of the chosen scale; a ripple rings every buoy it passes, so buoys
-nearer the drop sound first and the round wall sends each ring back for a
-quieter echo. Rain mode drops stones on its own.
+`/ripples/` is a separate, unlinked test page: a dark, distorted synth played
+from the computer keyboard, over a round pool that answers it.
 
-The water is a 2D wave equation on the CPU (`src/ripples/sim.js`), so the
-synth (`synth.js`) can read it directly. The light on the floor (`pool.js`)
-uses Evan Wallace's caustics method, as in Amanda Ghassaei's gpu-io wave2d
-example, run three times with slightly different refractive indices so the
-light splits into coloured fringes.
+- **Home row** (A to K) plays the triads of the current key, the **top row**
+  (Q to U) the same degrees as seventh chords, and the **bottom row** (Z to M)
+  power chords an octave down. Arrow keys change key (left, right) and octave
+  (up, down); the on-screen keycaps play too, for touch screens.
+- Each chord drops a stone and retunes the eight buoys to its notes, so the
+  ripples arpeggiate the chord, quieter, as they pass each buoy. Tapping the
+  water or letting it rain rings them too.
+
+The synth (`src/ripples/synth.js`) is detuned sawtooths through a resonant
+low-pass with a fast envelope, summed into one overdriven bus, with a clean
+sub and an 808-style thump beside it. Everything is synthesised; there are no
+samples. The water is a 2D wave equation on the CPU (`sim.js`); the light on
+the floor (`pool.js`) uses Evan Wallace's caustics method, as in Amanda
+Ghassaei's gpu-io wave2d example, run once per colour channel so the light
+splits into fringes.
 
 ## Controls worth knowing
 

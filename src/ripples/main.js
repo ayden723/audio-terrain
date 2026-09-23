@@ -1,16 +1,17 @@
 import GUI from 'lil-gui';
 import * as THREE from 'three';
 import { RippleSim } from './sim.js';
-import { RippleSynth, SCALES, ROOTS, scaleNotes } from './synth.js';
+import { RippleSynth, DEFAULTS as SYNTH } from './synth.js';
+import { MODES, KEYS, ROWS, chordFor, keyLabel } from './chords.js';
 import { PoolScene, LOOKS } from './pool.js';
 import { scramble } from '../shared/scramble.js';
 import { wipeIn, wipeLink } from '../shared/wipe.js';
 
 wipeIn();
 
-// Tap the water and the ripple rings every buoy it passes. Buoys nearer the
-// drop sound first, so where you tap sets the order of the notes, and the
-// round wall sends each ring back for a quieter second pass.
+// Play chords on the letter keys and the water answers: each chord drops a
+// stone and retunes the buoys to its notes, so the ripples arpeggiate what
+// you play. Tapping the water works too.
 
 const N = 160;
 const RADIUS = 0.47;
@@ -18,23 +19,25 @@ const STEPS_PER_SEC = 120;
 
 const S = {
   look: 'Ember',
-  scale: 'Major pentatonic',
-  root: 'D',
+  mode: 'Minor',
+  key: 'D',
+  octave: 0,
   speed: 0.22, // wave speed squared, in grid units per step
   life: 0.993, // energy kept per step
-  rain: 1.1, // drops per second while rain is on
+  rain: 0.8, // drops per second while rain is on
   height: 0.05,
   depth: 0.3,
   strength: 1,
   soft: 1.5,
   dispersion: 0.5,
   volume: 0.8,
-  reverb: 0.45,
+  reverb: 0.3,
   sensitivity: 4,
+  ...SYNTH,
 };
 
-// One buoy in the middle holds the root; seven more circle it, rising up the
-// scale as they go round.
+// One buoy in the middle holds the chord's root; seven more circle it,
+// climbing through the chord's notes as they go round.
 const BUOYS = [{ u: 0.5, v: 0.5 }];
 for (let i = 0; i < 7; i++) {
   const a = -Math.PI / 2 + (i / 7) * Math.PI * 2;
@@ -47,18 +50,29 @@ const sim = new RippleSim(N, RADIUS);
 const pool = new PoolScene($('view'), { n: N, radius: RADIUS, buoys: BUOYS });
 const synth = new RippleSynth();
 
-const NAMES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
-let notes = [];
-let noteNames = [];
-function retune() {
-  notes = scaleNotes(S.scale, S.root, BUOYS.length);
-  noteNames = notes.map((f) => {
-    const m = Math.round(12 * Math.log2(f / 440)) + 57;
-    return `${NAMES[m % 12]}${Math.floor(m / 12)}`;
-  });
-  synth.setNotes(notes);
+const keyIndex = () => KEYS.indexOf(S.key);
+const midiToHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+const midiName = (m) => `${KEYS[((m % 12) + 12) % 12]}${Math.floor(m / 12) - 1}`;
+
+/* -------------------------------------------------------------- buoys -- */
+
+let buoyMidi = [];
+let buoyNames = [];
+
+/** Spread a chord's notes over the buoys, climbing from its root. */
+function tuneBuoys(chordNotes) {
+  const pcs = [...new Set(chordNotes.map((n) => ((n % 12) + 12) % 12))];
+  let m = 48 + (((chordNotes[0] % 12) + 12) % 12); // the root, in octave 3
+  const out = [m];
+  while (out.length < BUOYS.length) {
+    m++;
+    if (pcs.includes(m % 12)) out.push(m);
+  }
+  buoyMidi = out;
+  buoyNames = out.map(midiName);
+  synth.setBuoyNotes(out.map(midiToHz));
 }
-retune();
+tuneBuoys(chordFor('triad', 0, S.mode, keyIndex(), 0).notes);
 
 /* -------------------------------------------------------------- sound -- */
 
@@ -66,7 +80,7 @@ let rain = true;
 
 function startSound() {
   if (synth.started) return;
-  synth.start(notes, PANS);
+  synth.start(buoyMidi.map(midiToHz), PANS);
   synth.setVolume(S.volume);
   synth.setReverb(S.reverb);
   setSoundButton();
@@ -84,6 +98,112 @@ function drop(u, v, amount, radius, loud) {
   sim.disturb(u, v, radius, amount);
   synth.plip(loud, (u - 0.5) * 1.8);
 }
+
+/* ------------------------------------------------------------- chords -- */
+
+const LAYOUT = new Map(); // code -> { kind, index }
+ROWS.forEach((row) => row.codes.forEach((code, index) => LAYOUT.set(code, { kind: row.kind, index })));
+const held = new Map(); // code -> chord
+let lastChord = '';
+
+function chordOf(code) {
+  const { kind, index } = LAYOUT.get(code);
+  return chordFor(kind, index, S.mode, keyIndex(), S.octave);
+}
+
+function press(code) {
+  if (held.has(code)) return;
+  startSound();
+  const chord = chordOf(code);
+  held.set(code, chord);
+  synth.chordOn(code, chord.freqs);
+  tuneBuoys(chord.notes);
+  // a stone for each chord, placed by its degree, so each chord ripples its own way
+  const a = -Math.PI / 2 + (chord.degree / 7) * Math.PI * 2 + 0.3;
+  const heavy = LAYOUT.get(code).kind === 'power';
+  sim.disturb(0.5 + 0.3 * Math.cos(a), 0.5 + 0.3 * Math.sin(a), heavy ? 0.02 : 0.016, heavy ? 1.3 : 1);
+  lastChord = chord.name;
+  capFor(code)?.classList.add('down');
+}
+
+function release(code) {
+  if (!held.has(code)) return;
+  held.delete(code);
+  synth.chordOff(code);
+  capFor(code)?.classList.remove('down');
+}
+
+function releaseAll() {
+  [...held.keys()].forEach(release);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.target.closest('input, select, textarea')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (LAYOUT.has(e.code)) {
+    e.preventDefault();
+    if (!e.repeat) press(e.code);
+    return;
+  }
+  if (e.repeat) return;
+  const shift = { ArrowUp: ['octave', 1], ArrowDown: ['octave', -1], ArrowRight: ['key', 1], ArrowLeft: ['key', -1] }[e.code];
+  if (shift) {
+    e.preventDefault();
+    if (shift[0] === 'octave') S.octave = Math.max(-2, Math.min(1, S.octave + shift[1]));
+    else S.key = KEYS[(keyIndex() + shift[1] + 12) % 12];
+    gui.controllersRecursive().forEach((c) => c.updateDisplay());
+    relabel();
+    return;
+  }
+  if (e.code === 'Space' && !e.target.closest('button')) {
+    e.preventDefault();
+    startSound();
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 0.38;
+    drop(0.5 + r * Math.cos(a), 0.5 + r * Math.sin(a), 1.4, 0.016, 1);
+  }
+});
+window.addEventListener('keyup', (e) => { if (LAYOUT.has(e.code)) release(e.code); });
+window.addEventListener('blur', releaseAll);
+
+/* ------------------------------------------------ on-screen keyboard -- */
+
+const ROW_NAMES = { seventh: '7ths', triad: 'chords', power: 'power' };
+const caps = new Map();
+const keysEl = $('keys');
+ROWS.forEach((row) => {
+  const r = document.createElement('div');
+  r.className = `row row-${row.kind}`;
+  const tag = document.createElement('span');
+  tag.className = 'row-name';
+  tag.textContent = ROW_NAMES[row.kind];
+  r.appendChild(tag);
+  row.codes.forEach((code) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cap';
+    b.innerHTML = `<span class="k">${keyLabel(code)}</span><span class="c"></span>`;
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); b.setPointerCapture(e.pointerId); press(code); });
+    const up = () => release(code);
+    b.addEventListener('pointerup', up);
+    b.addEventListener('pointercancel', up);
+    b.addEventListener('lostpointercapture', up);
+    caps.set(code, b);
+    r.appendChild(b);
+  });
+  keysEl.appendChild(r);
+});
+const capFor = (code) => caps.get(code);
+
+function relabel() {
+  caps.forEach((b, code) => {
+    const c = chordOf(code);
+    b.querySelector('.c').textContent = c.name;
+    b.title = `${c.name} (${keyLabel(code)})`;
+  });
+  const o = S.octave === 0 ? '' : ` · oct ${S.octave > 0 ? '+' : ''}${S.octave}`;
+  $('keyname').textContent = `${S.key} ${S.mode.toLowerCase()}${o}`;
+}
+relabel();
 
 /* ------------------------------------------------------------ pointer -- */
 
@@ -130,14 +250,6 @@ function endStroke(e) {
 $('view').addEventListener('pointerup', endStroke);
 $('view').addEventListener('pointercancel', endStroke);
 
-window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Space' || e.target.closest('input, select, textarea, button')) return;
-  e.preventDefault();
-  startSound();
-  const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 0.38;
-  drop(0.5 + r * Math.cos(a), 0.5 + r * Math.sin(a), 1.4, 0.016, 1);
-});
-
 /* -------------------------------------------------------------- frame -- */
 
 const heights = new Float32Array(BUOYS.length);
@@ -175,7 +287,7 @@ pool.onFrame = () => {
   // its recent average: a passing wavefront rings it, slow drift does not.
   const fall = Math.exp(-dt / 0.3);
   const track = 1 - Math.exp(-dt / 0.25);
-  const playing = [];
+  const ringing = [];
   BUOYS.forEach((b, i) => {
     const h = sim.sample(b.u, b.v);
     heights[i] = h;
@@ -183,12 +295,17 @@ pool.onFrame = () => {
     const target = Math.min(1, Math.max(0, Math.abs(h - slow[i]) * S.sensitivity - 0.08));
     levels[i] = Math.max(levels[i] * fall, target);
     tilts[i] = Math.max(-1, Math.min(1, (sim.sample(b.u + 0.01, b.v) - sim.sample(b.u - 0.01, b.v)) * 6));
-    if (levels[i] > 0.12) playing.push(noteNames[i]);
+    if (levels[i] > 0.12) ringing.push(buoyNames[i]);
   });
   synth.update(levels, tilts);
   pool.updateBuoys(heights, levels);
 
-  const status = !synth.started ? 'tap the water to play' : playing.length ? playing.map((s) => `<b>${s}</b>`).join(' ') : S.scale + ' in ' + S.root;
+  const chords = [...held.values()].map((c) => c.name);
+  let status;
+  if (!synth.started) status = 'play chords on your keyboard, or tap the water';
+  else if (chords.length) status = chords.map((c) => `<b>${c}</b>`).join(' ') + (ringing.length ? ` · ${ringing.join(' ')}` : '');
+  else if (ringing.length) status = ringing.join(' ');
+  else status = lastChord ? `last: ${lastChord}` : '';
   if (status !== statusShown) {
     statusShown = status;
     $('status').innerHTML = status;
@@ -200,16 +317,28 @@ pool.onFrame = () => {
 function applyLook() {
   pool.set({ height: S.height, depth: S.depth, strength: S.strength, soft: S.soft, dispersion: S.dispersion });
 }
+const applySynth = () => synth.set({
+  drive: S.drive, cutoff: S.cutoff, resonance: S.resonance, sub: S.sub, punch: S.punch, release: S.release, detune: S.detune,
+});
 
 const gui = new GUI({ container: $('panel'), title: 'Ripples' });
 gui.add(S, 'look', Object.keys(LOOKS)).name('Look').onChange((v) => pool.setLook(v));
-const fMusic = gui.addFolder('Music');
-fMusic.add(S, 'scale', Object.keys(SCALES)).name('Scale').onChange(retune);
-fMusic.add(S, 'root', Object.keys(ROOTS)).name('Key').onChange(retune);
-fMusic.add(S, 'sensitivity', 1, 8, 0.1).name('Buoy sensitivity');
-fMusic.add(S, 'volume', 0, 1.2, 0.01).name('Volume').onChange((v) => synth.setVolume(v));
-fMusic.add(S, 'reverb', 0, 1, 0.01).name('Reverb').onChange((v) => synth.setReverb(v));
+const fKeys = gui.addFolder('Chords');
+fKeys.add(S, 'key', KEYS).name('Key (← →)').onChange(relabel);
+fKeys.add(S, 'mode', Object.keys(MODES)).name('Mode').onChange(relabel);
+fKeys.add(S, 'octave', -2, 1, 1).name('Octave (↑ ↓)').onChange(relabel);
+const fSynth = gui.addFolder('Synth');
+fSynth.add(S, 'drive', 0, 1, 0.01).name('Drive').onChange(applySynth);
+fSynth.add(S, 'cutoff', 150, 4000, 10).name('Filter').onChange(applySynth);
+fSynth.add(S, 'resonance', 0.5, 18, 0.1).name('Resonance').onChange(applySynth);
+fSynth.add(S, 'detune', 0, 40, 1).name('Detune (cents)').onChange(applySynth);
+fSynth.add(S, 'sub', 0, 1.2, 0.01).name('Sub').onChange(applySynth);
+fSynth.add(S, 'punch', 0, 1.2, 0.01).name('Punch').onChange(applySynth);
+fSynth.add(S, 'release', 0.05, 3, 0.01).name('Release (s)').onChange(applySynth);
+fSynth.add(S, 'volume', 0, 1.2, 0.01).name('Volume').onChange((v) => synth.setVolume(v));
+fSynth.add(S, 'reverb', 0, 1, 0.01).name('Reverb').onChange((v) => synth.setReverb(v));
 const fWater = gui.addFolder('Water');
+fWater.add(S, 'sensitivity', 1, 8, 0.1).name('Buoy sensitivity');
 fWater.add(S, 'speed', 0.05, 0.34, 0.01).name('Wave speed');
 fWater.add(S, 'life', 0.985, 0.999, 0.0005).name('Ripple life');
 fWater.add(S, 'rain', 0.2, 4, 0.1).name('Rain (drops/s)');
@@ -219,8 +348,11 @@ fLight.add(S, 'depth', 0.08, 0.8, 0.01).name('Pool depth').onChange(applyLook);
 fLight.add(S, 'strength', 0.3, 2.5, 0.05).name('Brightness').onChange(applyLook);
 fLight.add(S, 'soft', 1, 4, 0.1).name('Softness').onChange(applyLook);
 fLight.add(S, 'dispersion', 0, 1.5, 0.05).name('Colour split').onChange(applyLook);
+fWater.close();
+fLight.close();
 if (window.innerWidth > 0 && window.innerWidth < 640) gui.close();
 applyLook();
+applySynth();
 
 $('btn-rain').addEventListener('click', () => {
   rain = !rain;
@@ -238,4 +370,4 @@ scramble(document.querySelector('.brand-txt'), document.querySelector('.brand'))
 wipeLink(document.querySelector('.brand'));
 
 // test hook
-window.__ripples = { sim, pool, synth, S, drop, levels, BUOYS };
+window.__ripples = { sim, pool, synth, S, drop, levels, BUOYS, press, release, held, get buoyNames() { return buoyNames; } };

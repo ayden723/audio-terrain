@@ -102,22 +102,86 @@ html, body {
 }
 #status b { color: var(--accent); font-weight: 600; }
 
-#hint {
+/* chord keyboard: letter keys as keycaps, each showing its chord */
+#deck {
   position: fixed;
-  left: 18px;
-  right: 18px;
-  bottom: 16px;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-radius: 14px;
+  background: var(--chrome);
+  color: var(--chrome-text);
+  max-width: calc(100vw - 16px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.deck-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: var(--ink);
-  opacity: 0.45;
-  pointer-events: none;
 }
+#keyname { font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+:root[data-look="Terracotta"] #keyname { color: #ffb27a; }
+.deck-hint { opacity: 0.55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#keys { display: grid; gap: 5px; }
+.row { display: flex; gap: 5px; align-items: center; }
+.row-triad { padding-left: 14px; }
+.row-power { padding-left: 28px; }
+.row-name {
+  width: 44px;
+  flex: none;
+  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+.cap {
+  width: 52px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  justify-items: start;
+  align-items: end;
+  padding: 4px 6px 5px;
+  border-radius: 7px;
+  border: 1px solid rgba(236, 227, 210, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.08s ease, transform 0.08s ease, border-color 0.08s ease;
+}
+.cap .k { font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; opacity: 0.5; }
+.cap .c { font-size: 12px; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
+.row-power .cap { border-color: rgba(236, 227, 210, 0.26); }
+.cap:hover { border-color: rgba(236, 227, 210, 0.45); }
+.cap.down {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1512;
+  transform: translateY(1px);
+}
+.cap.down .k { opacity: 0.7; }
 
 #panel { position: fixed; top: 58px; right: 14px; max-height: calc(100vh - 80px); overflow: auto; }
 #panel .lil-gui.root { --width: 250px; }
 
 @media (max-width: 640px) {
-  #panel { top: auto; bottom: 44px; right: 8px; max-height: 45vh; }
+  #panel { top: 104px; right: 8px; max-height: 40vh; }
   #status { flex-basis: 100%; }
+  .deck-hint { display: none; }
+  .row-name { display: none; }
+  .row-triad, .row-power { padding-left: 0; }
+  .cap { width: calc((100vw - 16px - 24px - 7 * 5px) / 8); min-width: 0; height: 44px; padding: 4px; }
+  .cap .c { font-size: 10.5px; }
 }

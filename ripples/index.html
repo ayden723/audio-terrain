@@ -20,10 +20,16 @@
       <span class="tag">test</span>
       <button id="btn-rain" class="chip ghost on" aria-pressed="true">Rain</button>
       <button id="btn-sound" class="chip ghost" aria-pressed="false">Sound off</button>
-      <div id="status">tap the water to play</div>
+      <div id="status">play chords on your keyboard, or tap the water</div>
     </header>
 
-    <div id="hint">tap or drag across the water · drag outside the pool or right-drag to turn it · space drops a stone</div>
+    <section id="deck" aria-label="Chord keyboard">
+      <div class="deck-head">
+        <span id="keyname">D minor</span>
+        <span class="deck-hint">hold letters for chords · ← → key · ↑ ↓ octave · space drops a stone · drag outside the pool to turn it</span>
+      </div>
+      <div id="keys"></div>
+    </section>
 
     <div id="panel"></div>
     <script type="module" src="/src/ripples/main.js"></script>
