@@ -143,6 +143,11 @@ the camera position.
 
 ## Ripples
 
+> **Hidden for now.** `SHOW_RIPPLES` in `vite.config.js` is `false`, so the
+> build leaves out both `/ripples/` and its card on the home page. Nothing is
+> deleted; set it to `true` to bring both back. (`npm run dev` still serves
+> `/ripples/` locally either way.)
+
 `/ripples/` is the second tool on the home page: a dark synth played from the
 computer keyboard, over a round pool that answers it. It is kept small so
 anything you play sounds good together:

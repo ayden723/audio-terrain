@@ -240,6 +240,15 @@ body { background: transparent; }
    Scheme: Coolors.
 ========================================== */
 
+/* a card on its own sits centred at a comfortable width rather than
+   filling half an empty grid */
+.tools-grid > .tool-card:only-child {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 820px;
+  justify-self: center;
+}
+
 .tile-terrain { background: #C25A22; color: #ffe4d2; }  /* deep orange */
 .tile-ripples { background: #1B4868; color: #d3ecff; }  /* deep water blue */
 
