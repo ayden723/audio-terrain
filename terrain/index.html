@@ -40,16 +40,25 @@
         <svg viewBox="0 0 24 24" class="i-pause"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" /></svg>
       </button>
       <span id="tcur" class="t">0:00</span>
-      <input id="seek" type="range" min="0" max="1000" value="0" step="1" />
+      <input id="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek" />
       <span id="tdur" class="t">0:00</span>
-      <select id="pmode" title="Playhead style">
+      <select id="pmode" title="Playhead style" data-hint="Playhead: Cursor marks the current moment on the terrain, Reveal draws the terrain in as it plays, Off hides it.">
         <option value="cursor">Cursor</option>
         <option value="reveal">Reveal</option>
         <option value="off">Off</option>
       </select>
+      <button id="loop" title="Loop" aria-label="Loop" aria-pressed="true" data-hint="Loop: start again from the beginning when playback reaches the end.">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" /></svg>
+      </button>
     </footer>
 
     <div id="panel"></div>
+
+    <aside id="explain" hidden>
+      <div class="ex-title"></div>
+      <div class="ex-thumbs"></div>
+      <div class="ex-text"></div>
+    </aside>
 
     <div id="notice" hidden><span class="txt"></span><button type="button"></button></div>
     <div id="present-hint" hidden>Esc to exit · Space to play / pause</div>

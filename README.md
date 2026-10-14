@@ -33,7 +33,7 @@ The file is analysed off the main thread with a multi-resolution STFT: wide FFT
 windows where the display columns are narrow (low frequencies) and short windows
 where they are wide (high frequencies), blended per column. Every slice averages
 several overlapping frames, which is what keeps the surface smooth instead of
-noisy. **FFT quality** trades time for fidelity — *Ultra* uses 1024/4096/16384
+noisy. **Analysis quality** trades time for fidelity — *Ultra* uses 1024/4096/16384
 point windows at 8x overlap.
 
 ### Long files
@@ -96,8 +96,8 @@ sets the scroll rate. Both capture APIs need a secure context (localhost or HTTP
 
 **Waterfall → Scroll with audio** switches from showing the whole file at once to
 a moving window that scrolls as the audio plays, newest ridge at the front. You
-can still orbit and pan freely while it runs. **Loop** restarts playback at the
-end so the waterfall runs continuously.
+can still orbit and pan freely while it runs. The **Loop** button in the transport
+restarts playback at the end so the waterfall runs continuously.
 
 Because a window shows only part of the file, turning it on raises the analysis
 time resolution automatically so one window still holds a full stack of ridges.
@@ -179,8 +179,8 @@ change the picture a lot.
 | --- | --- |
 | Ridge count | How many ridges are *drawn*, independent of the analysis. |
 | Ridge depth | How far each ridge hangs below its own crest. 0 extrudes it to the floor. |
-| Dynamic range | dB below the peak that maps to the floor. Lower = only the loud parts. |
-| Tilt | dB per octave lift on high frequencies, to counter music's natural rolloff. |
+| Quiet detail | dB below the peak that maps to the floor. Lower = only the loud parts. |
+| Treble lift | dB per octave lift on high frequencies, to counter music's natural rolloff. |
 | Contrast | Gamma on the heights. Above 1 flattens the quiet parts. |
 | Cast shadows | Terrain self-shadowing, marched toward the light in the vertex shader. |
 | Rim light | Grazing-angle sheen that picks crests out of the mass. |
