@@ -13,6 +13,10 @@ const MAX_FRAMES_PER_SLICE = 10;
 
 let audio = null; // { samples: Float32Array, sampleRate }
 let data = null;  // { values: Float32Array, slices, cols, freqs, isDb }
+// Stand-in audio for what-if previews while nothing is loaded, with its analyses
+// cached by parameters so hovering a setting twice costs nothing.
+let specimen = null;
+const specimenCache = new Map();
 
 /* ---------------------------------------------------------------- FFT ---- */
 
@@ -160,8 +164,8 @@ function accumulate(power, map, acc, cols) {
 
 /* ------------------------------------------------------------- analyse --- */
 
-function analyze(p, id) {
-  const { samples, sampleRate: sr } = audio;
+function analyze(source, p, id) {
+  const { samples, sampleRate: sr } = source;
   const slices = Math.max(2, p.slices | 0);
   const cols = Math.max(8, p.cols | 0);
   const fmax = Math.min(p.fmax, sr * 0.4975);
@@ -231,7 +235,7 @@ function analyze(p, id) {
 
         done += paired ? 2 : 1;
         const now = performance.now();
-        if (now - lastPost > 120) {
+        if (id != null && now - lastPost > 120) {
           lastPost = now;
           self.postMessage({ type: 'progress', id, value: done / totalFrames, size: N });
         }
@@ -272,8 +276,18 @@ function analyze(p, id) {
     }
   }
 
-  data = { values: db, slices, cols, freqs: centers, isDb: true };
-  return { slices, cols, duration: samples.length / sr };
+  return { values: db, slices, cols, freqs: centers, isDb: true };
+}
+
+function specimenData(p) {
+  const key = JSON.stringify(p);
+  let d = specimenCache.get(key);
+  if (!d) {
+    if (specimenCache.size >= 8) specimenCache.delete(specimenCache.keys().next().value);
+    d = analyze(specimen, p, null);
+    specimenCache.set(key, d);
+  }
+  return d;
 }
 
 /* ------------------------------------------------------------ synthesis -- */
@@ -417,14 +431,14 @@ function percentile(a, p) {
 }
 
 /** dB (or image luminance) -> 0..1 heights. */
-function shapeHeights(p) {
-  if (!data) throw new Error('nothing to shape yet');
-  const { slices, cols, isDb } = data;
-  const a = Float32Array.from(data.values);
+function shapeHeights(d, p) {
+  if (!d) throw new Error('nothing to shape yet');
+  const { slices, cols, isDb } = d;
+  const a = Float32Array.from(d.values);
 
-  if (isDb && p.tilt && data.freqs) {
+  if (isDb && p.tilt && d.freqs) {
     for (let c = 0; c < cols; c++) {
-      const t = p.tilt * Math.log2(Math.max(data.freqs[c], 1) / 1000);
+      const t = p.tilt * Math.log2(Math.max(d.freqs[c], 1) / 1000);
       for (let s = 0; s < slices; s++) a[s * cols + c] += t;
     }
   }
@@ -461,8 +475,8 @@ self.onmessage = (e) => {
     }
     if (m.type === 'analyze') {
       if (!audio) throw new Error('no audio loaded');
-      const r = analyze(m.params, m.id);
-      self.postMessage({ type: 'analyzed', id: m.id, ...r });
+      data = analyze(audio, m.params, m.id);
+      self.postMessage({ type: 'analyzed', id: m.id, slices: data.slices, cols: data.cols });
       return;
     }
     if (m.type === 'setLevels') {
@@ -470,8 +484,26 @@ self.onmessage = (e) => {
       return;
     }
     if (m.type === 'shape') {
-      const heights = shapeHeights(m.params);
+      const heights = shapeHeights(data, m.params);
       self.postMessage({ type: 'heights', id: m.id, heights }, [heights.buffer]);
+      return;
+    }
+    if (m.type === 'setSpecimen') {
+      specimen = { samples: m.samples, sampleRate: m.sampleRate };
+      specimenCache.clear();
+      return;
+    }
+    if (m.type === 'preview') {
+      // A what-if for the explainer card. It never replaces the resident matrix.
+      let d = data;
+      if (m.levels) d = { ...m.levels, isDb: false };
+      else if (m.specimen) d = specimenData(m.analysis);
+      else if (m.analysis) {
+        if (!audio) throw new Error('no audio loaded');
+        d = analyze(audio, m.analysis, null);
+      }
+      const heights = shapeHeights(d, m.shape);
+      self.postMessage({ type: 'preview', id: m.id, heights, slices: d.slices, cols: d.cols }, [heights.buffer]);
       return;
     }
     if (m.type === 'synth') {

@@ -7,6 +7,7 @@ import { encodeWav } from './wav.js';
 import { LiveInput } from './live.js';
 import { scramble } from './shared/scramble.js';
 import { wipeIn, wipeLink } from './shared/wipe.js';
+import { initExplain } from './explain.js';
 
 wipeIn();
 
@@ -139,6 +140,13 @@ function autoSlices() {
   return Math.max(24, Math.round(S.ridges));
 }
 
+const analysisParams = (s, slices) => ({
+  slices, cols: s.cols, fmin: s.fmin, fmax: s.fmax, scale: s.scale, quality: s.quality,
+});
+const shapeParams = (s) => ({
+  tilt: s.tilt, smoothF: s.smooth, smoothT: s.smooth * 0.3, range: s.range, cut: s.cut, gamma: s.gamma,
+});
+
 let analyzing = false;
 let analyzeQueued = false;
 
@@ -149,13 +157,7 @@ async function requestAnalysis() {
   setBusy(true, 'Analysing…');
   try {
     const r = await call(
-      {
-        type: 'analyze',
-        params: {
-          slices: autoSlices(), cols: S.cols, fmin: S.fmin, fmax: S.fmax,
-          scale: S.scale, quality: S.quality,
-        },
-      },
+      { type: 'analyze', params: analysisParams(S, autoSlices()) },
       [],
       (v, m) => {
         setProgress(v);
@@ -228,13 +230,7 @@ async function applyShape() {
   if (shaping) { shapeQueued = true; return; }
   shaping = true;
   try {
-    const r = await call({
-      type: 'shape',
-      params: {
-        tilt: S.tilt, smoothF: S.smooth, smoothT: S.smooth * 0.3,
-        range: S.range, cut: S.cut, gamma: S.gamma,
-      },
-    });
+    const r = await call({ type: 'shape', params: shapeParams(S) });
     relief.setData(r.heights, dataDims.slices, dataDims.cols);
     if (introPending) { introPending = false; drawIn(); }
   } catch (err) {
@@ -378,6 +374,7 @@ async function loadAudioFile(file) {
     adoptAudio(buffer, file.name);
     showImageControls(false);
     applyFit();
+    syncInert();
     introPending = true;
     await requestAnalysis();
   } catch (err) {
@@ -581,6 +578,7 @@ async function startLive(mode, deviceId) {
     live.onended = () => stopLive();
     releaseFit();
     allocLive();
+    syncInert();
     await populateDevices();
     showLiveControls(true);
   } catch (err) {
@@ -602,6 +600,7 @@ function stopLive() {
     dataDims = null;
     showEmpty(true);
     relief.setData(new Float32Array(4), 2, 2);
+    syncInert();
   }
 }
 
@@ -660,6 +659,10 @@ function seek(t) {
   if (player.playing) { stopPlayback(); startPlayback(); }
 }
 
+function syncLoop() {
+  $('loop').setAttribute('aria-pressed', String(S.loop));
+}
+
 function updateTransportEnabled() {
   $('transport').classList.toggle('disabled', !src.audioBuffer);
   $('tdur').textContent = fmtTime(src.duration);
@@ -707,31 +710,36 @@ relief.onFrame = () => {
 
 /* ---------------------------------------------------------------- look -- */
 
+/** Shader uniforms for a set of settings: the screen's, or a what-if's. */
+function lookUniforms(s) {
+  return {
+    uBg: s.bg,
+    uShadow: s.shadow,
+    uHighlight: s.highlight,
+    uLine: s.line,
+    uAccent: s.accent,
+    uStops: s.stops,
+    uColorMode: s.colorMode === 'ramp' ? 1 : 0,
+    uAmbient: s.ambient,
+    uFillMix: s.mode === 'lines' ? 0 : 1,
+    uSkirt: s.skirt,
+    uLineW: s.lineWidth,
+    uLineOpacity: s.lineOpacity,
+    uCrestShade: s.crestShade,
+    uCrestLen: s.crestLen,
+    uBaseFade: s.baseFade,
+    uRim: s.rim,
+    uShadowStr: s.shadowStr,
+    uShadowLen: s.shadowLen,
+    uShadowSteps: s.shadowSteps,
+    uFog: s.fog,
+  };
+}
+
 function applyLook() {
   relief.setMode(S.mode);
   relief.setRidges(S.ridges);
-  relief.set({
-    uBg: S.bg,
-    uShadow: S.shadow,
-    uHighlight: S.highlight,
-    uLine: S.line,
-    uAccent: S.accent,
-    uStops: S.stops,
-    uColorMode: S.colorMode === 'ramp' ? 1 : 0,
-    uAmbient: S.ambient,
-    uFillMix: S.mode === 'lines' ? 0 : 1,
-    uSkirt: S.skirt,
-    uLineW: S.lineWidth,
-    uLineOpacity: S.lineOpacity,
-    uCrestShade: S.crestShade,
-    uCrestLen: S.crestLen,
-    uBaseFade: S.baseFade,
-    uRim: S.rim,
-    uShadowStr: S.shadowStr,
-    uShadowLen: S.shadowLen,
-    uShadowSteps: S.shadowSteps,
-    uFog: S.fog,
-  });
+  relief.set(lookUniforms(S));
   relief.setReverse(S.reverse);
   relief.setLight(S.lightAz, S.lightEl);
   relief.setDims({ W: S.width, H: S.height, D: S.depth });
@@ -753,12 +761,111 @@ function applyPreset(name) {
   refreshGui();
 }
 
+/* ------------------------------------------------------------- what-if -- */
+
+// The explainer card shows a setting's effect by drawing the terrain with that
+// one setting changed. These work out what such a drawing needs.
+
+const ANALYSIS_KEYS = ['quality', 'cols', 'fmin', 'fmax', 'scale'];
+const SHAPE_KEYS = ['tilt', 'smooth', 'range', 'cut', 'gamma'];
+// Everything Lines mode paints over with the background colour.
+const SHADING_KEYS = ['colorMode', 'shadow', 'ambient', 'shadowStr', 'crestShade', 'lightAz', 'lightEl'];
+const PITCH_KEYS = ['fmin', 'fmax', 'scale'];
+const PREVIEW_MAX_SLICES = 512;
+
+const fromPixels = () => src.kind === 'image' && S.terrainFrom === 'Image pixels';
+
+/** Why a setting changes nothing right now, or null when it does. */
+function inertReason(key) {
+  if (S.mode === 'surface' && (key === 'skirt' || key === 'crestShade')) return 'No effect in Surface mode, which has no ribbons.';
+  if (S.mode === 'lines' && SHADING_KEYS.includes(key)) return 'No effect in Lines mode, which draws no shading.';
+  if (key === 'motionSpeed' && !S.autoMove) return 'Only used while Auto move is on.';
+  if (key === 'windowSec' && !S.waterfall && src.kind !== 'live') return 'Only used while Scroll with audio is on, or with live input.';
+  if (key === 'waterfall' && src.kind === 'live') return 'Live input always scrolls.';
+  if (fromPixels()) {
+    if (['range', 'tilt', 'quality'].includes(key)) return 'No effect on terrain built from image pixels.';
+    if (PITCH_KEYS.includes(key)) return 'With image pixels this changes the sound, not the terrain.';
+  }
+  return null;
+}
+
+/** Grey out whatever does nothing right now. Pitch still shapes an image's sound, so it stays live. */
+function syncInert() {
+  gui?.controllersRecursive().forEach((c) => {
+    c.enable(PITCH_KEYS.includes(c.property) || !inertReason(c.property));
+  });
+}
+
+function canPreview(key) {
+  if (!src.kind) return true;
+  if (!dataDims) return false;
+  // live input is shaped as it arrives and then forgotten, so it cannot be redone
+  if (src.kind === 'live') return !ANALYSIS_KEYS.includes(key) && !SHAPE_KEYS.includes(key);
+  return true;
+}
+
+let specimenSent = false;
+
+/**
+ * Heights for the settings `s`, when `changed` is something only the worker can
+ * answer. Null means the texture already on screen will do.
+ */
+function whatIfHeights(s, changed) {
+  const shape = shapeParams(s);
+  if (!src.kind) {
+    // nothing loaded: show the effect on the built-in demo instead
+    if (!specimenSent) {
+      const { samples, sampleRate } = makeDemo();
+      worker.postMessage({ type: 'setSpecimen', samples, sampleRate }, [samples.buffer]);
+      specimenSent = true;
+    }
+    return call({ type: 'preview', specimen: true, analysis: analysisParams(s, Math.max(24, Math.round(s.ridges))), shape });
+  }
+  if (src.kind === 'live') return null;
+  if (fromPixels()) {
+    if (changed === 'cols' || changed === 'invert') {
+      const values = imageLevels(src.bitmap, dataDims.slices, s.cols, s.invert);
+      return call({ type: 'preview', levels: { values, slices: dataDims.slices, cols: s.cols }, shape }, [values.buffer]);
+    }
+  } else if (ANALYSIS_KEYS.includes(changed)) {
+    const slices = Math.min(dataDims.slices, PREVIEW_MAX_SLICES);
+    return call({ type: 'preview', analysis: analysisParams(s, slices), shape });
+  }
+  if (SHAPE_KEYS.includes(changed)) return call({ type: 'preview', shape });
+  return null;
+}
+
+/** Draw the terrain as it would look with one setting changed. Resolves to whether it could. */
+async function renderWhatIf(canvas, key, value, spec) {
+  const preset = key === 'preset' && PRESETS[value];
+  const s = { ...S, ...(preset ? { ...preset, stops: preset.stops || DEFAULT_STOPS } : { [key]: value }), ...spec.also };
+  try {
+    const r = await whatIfHeights(s, key);
+    return relief.snapshot(canvas, {
+      uniforms: lookUniforms(s),
+      heights: r && { data: r.heights, slices: r.slices, cols: r.cols },
+      mode: s.mode,
+      ridges: s.ridges,
+      dims: { W: s.width, H: s.height, D: s.depth },
+      light: [s.lightAz, s.lightEl],
+      reverse: s.reverse,
+      view: key === 'view' ? value : null,
+      reframe: spec.reframe,
+      zoom: spec.zoom,
+      play: spec.play,
+    });
+  } catch {
+    return false;
+  }
+}
+
 /* ----------------------------------------------------------------- GUI -- */
 
 let gui;
 let imgControllers = [];
 let stopCtrl = null;
 let deviceCtrl = null;
+let presetCtrl = null;
 
 function showLiveControls(show) {
   [stopCtrl, deviceCtrl].forEach((c) => c && (show ? c.show() : c.hide()));
@@ -779,6 +886,31 @@ async function populateDevices() {
 
 function refreshGui() {
   gui?.controllersRecursive().forEach((c) => c.updateDisplay());
+  syncInert();
+}
+
+// An image's sound is built from these, so changing one rebuilds the sound too;
+// otherwise the terrain and what you hear drift apart.
+function invertChanged() {
+  if (fromPixels()) buildImageTerrain();
+  synthesize();
+}
+function pitchChanged() {
+  if (src.kind === 'image') synthesize();
+  else rebuildTerrain();
+}
+
+// Everything a preset sets. Changing one by hand means the look is no longer that preset.
+const PRESET_KEYS = new Set(Object.values(PRESETS).flatMap(Object.keys));
+let explain = null;
+
+function onGuiChange(e) {
+  if (PRESET_KEYS.has(e.property) && S.preset !== 'Custom') {
+    S.preset = 'Custom';
+    presetCtrl.updateDisplay();
+  }
+  syncInert();
+  explain?.changed(e.controller);
 }
 function showImageControls(show) {
   imgControllers.forEach((c) => (show ? c.show() : c.hide()));
@@ -801,26 +933,25 @@ function buildGui() {
   stopCtrl = fSrc.add({ stop: stopLive }, 'stop').name('Stop live input');
   showLiveControls(false);
   imgControllers = [
-    fSrc.add(S, 'invert').name('Invert image').onChange(rebuildTerrain),
-    fSrc.add(S, 'terrainFrom', ['Image pixels', 'Synthesized audio']).name('Terrain from').onChange(rebuildTerrain),
+    fSrc.add(S, 'invert').name('Invert image').onChange(invertChanged),
+    fSrc.add(S, 'terrainFrom', ['Image pixels', 'Synthesized audio']).name('Terrain from').onChange(() => { rebuildTerrain(); syncInert(); }),
     fSrc.add(S, 'synthDuration', 2, 60, 0.5).name('Audio length (s)').onFinishChange(synthesize),
     fSrc.add({ d: downloadWav }, 'd').name('Download WAV'),
   ];
   showImageControls(false);
 
   const fLook = gui.addFolder('Look');
-  fLook.add(S, 'preset', Object.keys(PRESETS)).name('Preset').onChange(applyPreset);
+  presetCtrl = fLook.add(S, 'preset', Object.keys(PRESETS)).name('Preset').onChange(applyPreset);
   fLook.add(S, 'mode', { Ridges: 'ridges', Lines: 'lines', Surface: 'surface' }).name('Render mode').onChange(applyLook);
   fLook.add(S, 'ridges', 24, 600, 1).name('Ridge count').onChange(() => { own('ridges'); applyLook(); }).onFinishChange(maybeReanalyze);
   fLook.add(S, 'skirt', 0, 1.2, 0.01).name('Ridge depth').onChange(applyLook);
   fLook.add(S, 'height', 0.2, 9, 0.05).name('Height').onChange(applyLook);
   fLook.add(S, 'smooth', 0, 8, 0.1).name('Smoothing').onChange(applyShape);
-  fLook.add(S, 'range', 20, 120, 1).name('Dynamic range (dB)').onChange(applyShape);
+  fLook.add(S, 'range', 20, 120, 1).name('Quiet detail (dB)').onChange(applyShape);
   fLook.add(S, 'gamma', 0.3, 3, 0.01).name('Contrast').onChange(applyShape);
 
   const fFall = gui.addFolder('Waterfall');
   fFall.add(S, 'waterfall').name('Scroll with audio').onChange(() => { applyFit(); rebuildTerrain(); });
-  fFall.add(S, 'loop').name('Loop');
   fFall.add(S, 'windowSec', 0.5, 30, 0.5).name('Window (s)').onFinishChange(() => { if (S.waterfall) applyFit(); maybeReanalyze(); });
 
   const fCam = gui.addFolder('Camera');
@@ -833,15 +964,15 @@ function buildGui() {
   const fAdv = gui.addFolder('Advanced');
 
   const fAna = fAdv.addFolder('Analysis');
-  fAna.add(S, 'quality', { Standard: 'standard', High: 'high', 'Ultra (slow)': 'ultra' }).name('FFT quality').onChange(rebuildTerrain);
+  fAna.add(S, 'quality', { Standard: 'standard', High: 'high', 'Ultra (slow)': 'ultra' }).name('Analysis quality').onChange(rebuildTerrain);
   fAna.add(S, 'cols', 128, 2048, 16).name('Frequency detail').onFinishChange(rebuildTerrain);
-  fAna.add(S, 'fmin', 10, 500, 1).name('Min Hz').onFinishChange(rebuildTerrain);
-  fAna.add(S, 'fmax', 1000, 22050, 100).name('Max Hz').onFinishChange(rebuildTerrain);
-  fAna.add(S, 'scale', { Logarithmic: 'log', Mel: 'mel', Linear: 'linear' }).name('Frequency scale').onChange(rebuildTerrain);
+  fAna.add(S, 'fmin', 10, 500, 1).name('Min Hz').onFinishChange(pitchChanged);
+  fAna.add(S, 'fmax', 1000, 22050, 100).name('Max Hz').onFinishChange(pitchChanged);
+  fAna.add(S, 'scale', { Logarithmic: 'log', Mel: 'mel', Linear: 'linear' }).name('Frequency scale').onChange(pitchChanged);
 
   const fShape = fAdv.addFolder('Shape');
-  fShape.add(S, 'tilt', -6, 9, 0.1).name('Tilt (dB/oct)').onChange(applyShape);
-  fShape.add(S, 'cut', 0, 0.6, 0.005).name('Floor cut').onChange(applyShape);
+  fShape.add(S, 'tilt', -6, 9, 0.1).name('Treble lift (dB/oct)').onChange(applyShape);
+  fShape.add(S, 'cut', 0, 0.6, 0.005).name('Noise cut').onChange(applyShape);
   fShape.add(S, 'width', 3, 24, 0.1).name('Width').onChange(applyLook).onFinishChange(() => relief.reframe());
   fShape.add(S, 'depth', 2, 40, 0.1).name('Depth').onChange(() => { own('depth'); applyLook(); }).onFinishChange(() => relief.reframe());
   fShape.add(S, 'reverse').name('Reverse time').onChange(applyLook);
@@ -851,15 +982,15 @@ function buildGui() {
   fCol.addColor(S, 'bg').name('Background').onChange(applyLook);
   fCol.addColor(S, 'shadow').name('Shadow').onChange(applyLook);
   fCol.addColor(S, 'highlight').name('Highlight').onChange(applyLook);
-  fCol.addColor(S, 'line').name('Crest line').onChange(applyLook);
+  fCol.addColor(S, 'line').name('Lines').onChange(applyLook);
   fCol.addColor(S, 'accent').name('Playhead').onChange(applyLook);
-  fCol.add(S, 'lineOpacity', 0, 1, 0.01).name('Edge lines').onChange(applyLook);
+  fCol.add(S, 'lineOpacity', 0, 1, 0.01).name('Line strength').onChange(applyLook);
   fCol.add(S, 'crestShade', 0, 1, 0.01).name('Crest shading').onChange(applyLook);
   fCol.add(S, 'shadowStr', 0, 1, 0.01).name('Cast shadows').onChange(applyLook);
   fCol.add(S, 'rim', 0, 0.6, 0.01).name('Rim light').onChange(applyLook);
   fCol.add(S, 'fog', 0, 1, 0.01).name('Depth fade').onChange(applyLook);
   fCol.add(S, 'ambient', 0, 1, 0.01).name('Ambient light').onChange(applyLook);
-  fCol.add(S, 'lightAz', -180, 180, 1).name('Light angle').onChange(applyLook);
+  fCol.add(S, 'lightAz', -180, 179, 1).name('Light angle').onChange(applyLook);
   fCol.add(S, 'lightEl', 2, 88, 1).name('Light height').onChange(applyLook);
   fCol.add(S, 'grain').name('Paper grain').onChange(applyLook);
   fCol.add(S, 'renderScale', 0.5, 2, 0.25).name('Render quality').onChange((v) => relief.setRenderScale(v));
@@ -868,6 +999,10 @@ function buildGui() {
   fSyn.add(S, 'synthRange', 20, 90, 1).name('Synth dynamics (dB)').onFinishChange(synthesize);
   fSyn.add(S, 'synthRows', 128, 1024, 32).name('Synth partials').onFinishChange(synthesize);
   fSyn.add({ s: synthesize }, 's').name('Re-synthesize audio');
+
+  // on a phone the open panel would cover the terrain it controls
+  if (window.matchMedia('(max-width: 640px)').matches) gui.close();
+  gui.onChange(onGuiChange);
 
   fAdv.close();
   fAna.close();
@@ -888,6 +1023,7 @@ $('play').addEventListener('click', togglePlay);
 $('btn-reset').addEventListener('click', resetSettings);
 $('btn-present').addEventListener('click', enterPresentation);
 $('pmode').addEventListener('change', (e) => { S.playMode = e.target.value; });
+$('loop').addEventListener('click', () => { S.loop = !S.loop; syncLoop(); });
 $('seek').addEventListener('pointerdown', () => { seeking = true; });
 $('seek').addEventListener('pointerup', () => { seeking = false; });
 $('seek').addEventListener('input', (e) => {
@@ -950,14 +1086,17 @@ let noticeTimer = 0;
 
 function applySettings(next) {
   const rebuild = REBUILD_KEYS.some((k) => S[k] !== next[k]);
+  const resynth = src.kind === 'image' && ['invert', ...PITCH_KEYS].some((k) => S[k] !== next[k]);
   Object.assign(S, next);
   applyLook();
   relief.setRenderScale(S.renderScale);
   relief.setAutoMove(S.autoMove, S.motionSpeed);
   $('pmode').value = S.playMode;
+  syncLoop();
   refreshGui();
   if (rebuild) rebuildTerrain();
   else applyShape();
+  if (resynth) synthesize();
 }
 
 function resetSettings() {
@@ -1091,7 +1230,10 @@ wipeLink(document.querySelector('.brand'));
 
 // Starts empty on purpose: no sample audio is loaded until you give it one.
 buildGui();
+explain = initExplain({ gui, panel: $('panel'), card: $('explain'), hint: $('hint'), inert: inertReason, canPreview, render: renderWhatIf });
 applyLook();
+syncInert();
+syncLoop();
 updateTransportEnabled();
 showEmpty(true);
 

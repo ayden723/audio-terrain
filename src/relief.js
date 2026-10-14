@@ -175,6 +175,17 @@ const VIEWS = {
   top: { top: true },
 };
 
+// What-if snapshots are drawn larger than they are shown and scaled down, so a
+// thumbnail reads like the full view shrunk rather than a mush of 1px lines.
+const SNAP_WIDTH = 720;
+const SNAP_COLS = 512;
+
+const copyUniform = (dst, v) => {
+  if (Array.isArray(v)) v.forEach((c, i) => dst.value[i].copy(c));
+  else if (v && v.copy && !v.isTexture) dst.value.copy(v);
+  else dst.value = v;
+};
+
 const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
 export class Relief {
@@ -286,15 +297,21 @@ export class Relief {
 
   /* ------------------------------------------------------------ data --- */
 
-  setData(h, slices, cols) {
+  makeTexture(h, slices, cols) {
     const fit = this.linearFloat ? THREE.LinearFilter : THREE.NearestFilter;
+    const tex = new THREE.DataTexture(h, cols, slices, THREE.RedFormat, THREE.FloatType);
+    tex.minFilter = fit;
+    tex.magFilter = fit;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  setData(h, slices, cols) {
     if (!this.tex || this.tex.image.width !== cols || this.tex.image.height !== slices) {
       if (this.tex) this.tex.dispose();
-      this.tex = new THREE.DataTexture(h, cols, slices, THREE.RedFormat, THREE.FloatType);
-      this.tex.minFilter = fit;
-      this.tex.magFilter = fit;
-      this.tex.wrapS = THREE.ClampToEdgeWrapping;
-      this.tex.wrapT = THREE.ClampToEdgeWrapping;
+      this.tex = this.makeTexture(h, slices, cols);
       this.uniforms.uHeights.value = this.tex;
       this.uniforms.uDataSize.value.set(cols, slices);
     } else {
@@ -343,7 +360,14 @@ export class Relief {
     const rows = this.disp.ridges;
     if (!cols || !this.tex) return;
 
-    const ridge = this.mode !== 'surface';
+    this.mesh = new THREE.Mesh(this.makeGeometry(rows, cols, this.mode !== 'surface'), this.material);
+    this.mesh.frustumCulled = false;
+    this.scene.add(this.mesh);
+    this.uniforms.uRidges.value = rows;
+  }
+
+  /** Ribbons (crest + skirt per ridge) or one joined sheet. */
+  makeGeometry(rows, cols, ridge) {
     const vpc = ridge ? 2 : 1;
     const pos = new Float32Array(rows * cols * vpc * 3);
     let p = 0;
@@ -381,17 +405,12 @@ export class Relief {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
-
-    this.mesh = new THREE.Mesh(geo, this.material);
-    this.mesh.frustumCulled = false;
-    this.scene.add(this.mesh);
-    this.uniforms.uRidges.value = rows;
+    return geo;
   }
 
   /* ---------------------------------------------------------- look ----- */
 
-  set(values) {
-    const u = this.uniforms;
+  set(values, u = this.uniforms) {
     for (const [key, val] of Object.entries(values)) {
       const uni = u[key];
       if (!uni) continue;
@@ -400,7 +419,7 @@ export class Relief {
         val.forEach((v, i) => uni.value[i] && uni.value[i].set(v));
       } else uni.value = val;
     }
-    if (values.uBg !== undefined) this.renderer.setClearColor(u.uBg.value, 1);
+    if (u === this.uniforms && values.uBg !== undefined) this.renderer.setClearColor(u.uBg.value, 1);
   }
 
   setDims({ W, H, D }) {
@@ -409,10 +428,10 @@ export class Relief {
     if (D !== undefined) { this.dims.D = D; this.uniforms.uD.value = D; }
   }
 
-  setLight(azDeg, elDeg) {
+  setLight(azDeg, elDeg, u = this.uniforms) {
     const az = (azDeg * Math.PI) / 180;
     const el = (elDeg * Math.PI) / 180;
-    this.uniforms.uLightDir.value.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+    u.uLightDir.value.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
   }
 
   setPlayhead(v, mode) {
@@ -447,36 +466,40 @@ export class Relief {
       this.moveCamera(pos, tgt, animate);
       return;
     }
-    const sph = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
-    const az = THREE.MathUtils.radToDeg(sph.theta);
-    const el = 90 - THREE.MathUtils.radToDeg(sph.phi);
+    const { az, el } = this.orbitAngles();
     const { pos, tgt } = this.solveOrbit(az, el);
     this.moveCamera(pos, tgt, animate);
   }
 
-  solveOrbit(azDeg, elDeg) {
+  /** The direction the camera currently looks from, in degrees. */
+  orbitAngles() {
+    const sph = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
+    return { az: THREE.MathUtils.radToDeg(sph.theta), el: 90 - THREE.MathUtils.radToDeg(sph.phi) };
+  }
+
+  solveOrbit(azDeg, elDeg, dims, aspect) {
     const az = THREE.MathUtils.degToRad(azDeg);
     const el = THREE.MathUtils.degToRad(elDeg);
     const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
     const right = new THREE.Vector3(0, 1, 0).cross(dir).normalize();
     const up = dir.clone().cross(right).normalize();
-    return this.solveFit(dir, right, up, false);
+    return this.solveFit(dir, right, up, false, dims, aspect);
   }
 
-  solveTop() {
+  solveTop(dims, aspect) {
     // looking straight down with +x as screen-up, so +z is screen-right
-    return this.solveFit(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), true);
+    return this.solveFit(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), true, dims, aspect);
   }
 
   /**
    * Smallest distance along `dir` at which every corner of the terrain's bounds
    * sits inside the frustum, for the current aspect ratio.
    */
-  solveFit(dir, right, up, top) {
-    const { W, H, D } = this.dims;
+  solveFit(dir, right, up, top, dims = this.dims, aspect = this.camera.aspect) {
+    const { W, H, D } = dims;
     const tgt = new THREE.Vector3(0, top ? 0 : H * 0.3, 0);
     const tv = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
-    const th = tv * this.camera.aspect;
+    const th = tv * aspect;
     const q = new THREE.Vector3();
     let dist = 0;
     for (const x of [-W / 2, W / 2]) {
@@ -559,6 +582,118 @@ export class Relief {
     return new Promise((resolve) => {
       this.intro = { start: performance.now(), duration, resolve, progress: 0 };
     });
+  }
+
+  /* ----------------------------------------------------- snapshot ----- */
+
+  /**
+   * Draw a what-if of the terrain into a 2D canvas, with the real shader and from
+   * the angle the camera is at now. Nothing on screen changes. `o` carries the
+   * look to draw: uniforms, mode, ridges, dims, light, reverse, and optionally
+   * heights (other data than what is showing), a named view, reframe (fit the
+   * camera to o.dims, as the app does after a resize), zoom and play (show the
+   * playhead). Returns false when there is nothing to draw.
+   */
+  snapshot(canvas, o) {
+    const tex = o.heights ? this.makeTexture(o.heights.data, o.heights.slices, o.heights.cols) : this.tex;
+    if (!tex) return false;
+    const w = canvas.width;
+    const h = canvas.height;
+    const ss = Math.max(1, Math.round(SNAP_WIDTH / w));
+    const sw = w * ss;
+    const sh = h * ss;
+
+    if (!this.snap) {
+      const uniforms = {};
+      for (const [k, { value: v }] of Object.entries(this.uniforms)) {
+        uniforms[k] = { value: Array.isArray(v) ? v.map((c) => c.clone()) : v && v.clone && !v.isTexture ? v.clone() : v };
+      }
+      const material = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+      mesh.frustumCulled = false;
+      this.snap = {
+        uniforms,
+        mesh,
+        scene: new THREE.Scene().add(mesh),
+        camera: new THREE.PerspectiveCamera(this.camera.fov, 1, 0.05, 1000),
+        target: new THREE.WebGLRenderTarget(sw, sh, { samples: 4 }),
+        geos: new Map(),
+        canvas: document.createElement('canvas'),
+      };
+    }
+    const { uniforms: u, mesh, scene, camera, target, geos } = this.snap;
+
+    for (const k in u) copyUniform(u[k], this.uniforms[k].value);
+    this.set(o.uniforms, u);
+    this.setLight(o.light[0], o.light[1], u);
+    const rows = Math.max(2, Math.round(o.ridges));
+    const ridge = o.mode !== 'surface';
+    u.uHeights.value = tex;
+    u.uDataSize.value.set(tex.image.width, tex.image.height);
+    u.uW.value = o.dims.W;
+    u.uHt.value = o.dims.H;
+    u.uD.value = o.dims.D;
+    u.uRidges.value = rows;
+    u.uSurface.value = ridge ? 0 : 1;
+    u.uFillMix.value = o.mode === 'lines' ? 0 : 1;
+    u.uIntro.value = 1;
+    u.uPlay.value = 0.5;
+    u.uPlayMode.value = o.play ? 1 : 0;
+
+    const view = o.view ? VIEWS[o.view] || VIEWS.reference : null;
+    const flip = view ? !!view.flip : this.viewFlip;
+    u.uReverse.value = !!o.reverse !== flip ? 1 : 0;
+
+    const top = view ? !!view.top : this.camera.up.x > 0.5;
+    const fitDims = o.reframe ? o.dims : this.dims;
+    const aspect = w / h;
+    const { az, el } = view && !top ? view : this.orbitAngles();
+    const { pos, tgt } = top ? this.solveTop(fitDims, aspect) : this.solveOrbit(az, el, fitDims, aspect);
+    camera.aspect = aspect;
+    camera.updateProjectionMatrix();
+    camera.up.set(top ? 1 : 0, top ? 0 : 1, 0);
+    camera.position.copy(tgt).addScaledVector(pos.sub(tgt), 1 / (o.zoom || 1));
+    camera.lookAt(tgt);
+    const ext = Math.max(o.dims.W, o.dims.D);
+    const dist = camera.position.distanceTo(tgt);
+    u.uFogNear.value = dist - ext * 0.3;
+    u.uFogFar.value = dist + ext * 0.8;
+
+    const cols = Math.min(tex.image.width, SNAP_COLS);
+    const key = `${rows}:${cols}:${ridge}`;
+    let geo = geos.get(key);
+    if (!geo) {
+      if (geos.size >= 4) {
+        const oldest = geos.keys().next().value;
+        geos.get(oldest).dispose();
+        geos.delete(oldest);
+      }
+      geo = this.makeGeometry(rows, cols, ridge);
+      geos.set(key, geo);
+    }
+    mesh.geometry = geo;
+
+    const r = this.renderer;
+    if (target.width !== sw || target.height !== sh) target.setSize(sw, sh);
+    r.setRenderTarget(target);
+    r.setClearColor(u.uBg.value, 1);
+    r.clear();
+    r.render(scene, camera);
+    const px = new Uint8Array(sw * sh * 4);
+    r.readRenderTargetPixels(target, 0, 0, sw, sh, px);
+    r.setRenderTarget(null);
+    r.setClearColor(this.uniforms.uBg.value, 1);
+    if (o.heights) tex.dispose();
+
+    const big = this.snap.canvas;
+    big.width = sw;
+    big.height = sh;
+    big.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), sw, sh), 0, 0);
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.setTransform(1, 0, 0, -1, 0, h); // GL rows run bottom-up
+    ctx.drawImage(big, 0, 0, w, h);
+    return true;
   }
 
   resize() {
