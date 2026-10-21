@@ -5,6 +5,17 @@ dist/
 *.local
 .claude/settings.local.json
 
+# Secrets: local env files and Wrangler's local secrets
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+
+# Logs
+*.log
+
 # Archives
 *.zip
 
