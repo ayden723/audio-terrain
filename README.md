@@ -3,8 +3,8 @@
 A 3D spectrogram built for looks rather than measurement: layered ridges of sound
 rendered as terrain you can orbit, in the style of an old plotted relief map.
 It is part of **Sound Labs**: the home page at `/` (with the animated background)
-links to two tools, this spectrogram at `/terrain/` and [Ripples](#ripples) at
-`/ripples/`.
+links to the tools: this spectrogram at `/terrain/`, [Landscape](#landscape) at
+`/landscape/` and [Ripples](#ripples) at `/ripples/`.
 
 ## Running it
 
@@ -21,6 +21,11 @@ for the spectrogram.
 Push to `main`. Cloudflare Workers Builds installs the dependencies and runs
 `npx wrangler deploy`, which first runs the build in `wrangler.jsonc`
 (`npm run build`) and then publishes `dist/` to the `audio-terrain` Worker. There is nothing to copy by hand.
+
+The Worker is almost all static files. Its one piece of code, `worker/index.js`,
+passes `/api/cop/<tile>.tif` through to the Copernicus elevation tiles for
+Landscape (they send no CORS headers). `npm run dev` stands in for it with a
+proxy in `vite.config.js`; `npx wrangler dev` runs the real thing on the built site.
 
 ## Using it
 
@@ -141,6 +146,67 @@ Changing a setting afterwards updates the terrain in place.
 without unloading your source, then offers **Undo** for a few seconds — including
 the camera position.
 
+## Landscape
+
+`/landscape/` turns a real place into sound, and is built for accuracy rather
+than looks: the picture it shows is read back out of the audio, and it tells
+you how far that is from the elevation data that went in.
+
+Frame an area on the map (north stays up) and press **Hear this area**. The
+result is drawn as a 3D spectrogram with Audio Terrain's own renderer
+(`src/relief.js`) and look presets, plus a **Topographic** look of its own:
+time (west to east) runs into the screen and frequency (south to north) across
+it, so **From the east** looks west over the land, and **Top down** is the map.
+The heights drawn are the ones read back out of the audio, and the playhead
+rides the ridge that is sounding, on the 3D view and on the real map at once.
+**Map** switches to a flat topographic drawing, with the source data and the
+difference beside it.
+
+- **Elevation** comes in as metres, never as an image. In the US it is
+  **USGS 3DEP** (1 m lidar where flown, 10 m everywhere else), read from the
+  USGS image service as 32-bit floats. Elsewhere it is **Copernicus GLO-30**
+  (30 m), read from cloud-optimised GeoTIFFs through the Worker, fetching only
+  the parts of each tile it needs. 3DEP answers 0 outside its coverage, so
+  Auto fills those cells from Copernicus and borders stay seamless.
+- **The grid is square in Web Mercator**, the map's own projection, so it lines
+  up with the frame cell for cell. Hillshading uses the true ground size of each
+  row's cells. When the grid is finer than the data, the stats say so;
+  interpolation there is bicubic and clamped, so it never invents peaks or pits.
+- **Axes:** time runs west to east, frequency south (low) to north (high).
+  Heights map *linearly to decibels*: the lowest land is `-Range` dB, the
+  highest 0 dB. With **Sea is silent** on, 0 m and below make no sound at all.
+- **Matched synthesis and analysis** (`src/landscape/dsp.js`): every row is one
+  sine partial exactly on an FFT bin, at least two bins from its neighbours, so
+  a Hann window keeps them apart. Every column is exactly one analysis frame.
+  Amplitudes crossfade between column centres with a raised cosine, and
+  synthesis undoes in advance the slight blur the analysis window adds. Each
+  column's sound repeats every frame, so it is one inverse FFT per column.
+- **Round trip:** the page analyses the very audio it plays, converts decibels
+  back to metres and compares them with the source. A typical area comes back
+  within a metre or less RMS at Standard precision and a few centimetres at High.
+  **Difference** shows where the two differ.
+
+| Control | What it does |
+| --- | --- |
+| Data | Auto, USGS 3DEP or Copernicus GLO-30. |
+| Detail | Grid rows (one partial each). Columns follow the frame's shape. |
+| Precision | Doubles the frame length per step: partials further apart, cleaner separation, twice the audio. |
+| Range | Loudness range in dB from the lowest to the highest point. |
+| Sea is silent | Off: the lowest point is the floor, for land below sea level. |
+| Overlay | Lays the sound's own map over the real one, georeferenced. |
+| Look / mode | Audio Terrain's presets, and Ridges, Surface or Lines. |
+| Ridges | How many ridges are drawn along time (the sound doesn't change). |
+| Height | Vertical scale. ×1 is true scale; auto lifts flat places and shows the factor. |
+| Camera | From the east, low angle, from the north, or top down. Drag to orbit. |
+
+Data and Detail need a new capture. Precision, Range and Sea re-voice the
+current area at once. **Save WAV** exports 16-bit, 48 kHz audio.
+
+Credits: USGS 3D Elevation Program; Copernicus WorldDEM-30 © DLR e.V.
+2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under
+COPERNICUS by the European Union and ESA; basemaps by OpenTopoMap and
+OpenFreeMap, map data © OpenStreetMap contributors.
+
 ## Ripples
 
 > **Hidden for now.** `SHOW_RIPPLES` in `vite.config.js` is `false`, so the
@@ -210,6 +276,10 @@ A 4-minute track measures ~11s to load, analyse and draw, holding 49-62fps.
 - `index.html`, `src/home/` — the Sound Labs home page: animated background,
   the Audio Terrain card's pixel dissolve and the Ripples card's rings
 - `ripples/index.html`, `src/ripples/` — Ripples
+- `landscape/index.html`, `src/landscape/` — Landscape: `dem.js` (elevation),
+  `dsp.js` (matched synthesis and analysis), `render.js` (topographic drawing),
+  `main.js` (map, pipeline, playback)
+- `worker/index.js` — the Copernicus tile pass-through
 - `src/shared/` — the level-meter label scramble and the scanline wipe between pages
 - `public/wipe-in.js` — covers a page before first paint when it is reached through the wipe
 - `terrain/index.html` — the spectrogram page

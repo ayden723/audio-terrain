@@ -1,6 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // Static-assets-only Worker: there is no server code, so no `main` entry.
+  // Static files from dist/, plus worker/index.js for the one thing that needs
+  // code: a pass-through for the Copernicus elevation tiles the Landscape page
+  // reads (they send no CORS headers). A request that matches a file is served
+  // as that file without running the Worker.
   //
   // Cloudflare Workers Builds deploys every push to main by running
   // `npx wrangler deploy`, which runs the build below first, so the site
@@ -11,12 +14,14 @@
   // (NOT `wrangler versions upload` — that uploads a version but never
   //  promotes it to production, so the live site never changes.)
   "name": "audio-terrain",
+  "main": "worker/index.js",
   "compatibility_date": "2026-09-11",
   "build": {
     "command": "npm run build"
   },
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS"
   },
   "observability": { "enabled": true }
 }

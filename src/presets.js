@@ -141,3 +141,29 @@ export const PRESETS = {
 };
 
 export const DEFAULT_STOPS = ['#120c2a', '#59136b', '#a5265b', '#e8642a', '#fcf6a8'];
+
+/** A look (preset fields plus stops / shadowLen / shadowSteps) as Relief uniforms. */
+export function lookUniforms(s) {
+  return {
+    uBg: s.bg,
+    uShadow: s.shadow,
+    uHighlight: s.highlight,
+    uLine: s.line,
+    uAccent: s.accent,
+    uStops: s.stops,
+    uColorMode: s.colorMode === 'ramp' ? 1 : 0,
+    uAmbient: s.ambient,
+    uFillMix: s.mode === 'lines' ? 0 : 1,
+    uSkirt: s.skirt,
+    uLineW: s.lineWidth,
+    uLineOpacity: s.lineOpacity,
+    uCrestShade: s.crestShade,
+    uCrestLen: s.crestLen,
+    uBaseFade: s.baseFade,
+    uRim: s.rim,
+    uShadowStr: s.shadowStr,
+    uShadowLen: s.shadowLen,
+    uShadowSteps: s.shadowSteps,
+    uFog: s.fog,
+  };
+}

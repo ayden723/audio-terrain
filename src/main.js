@@ -1,6 +1,6 @@
 import GUI from 'lil-gui';
 import { Relief } from './relief.js';
-import { PRESETS, DEFAULT_STOPS } from './presets.js';
+import { PRESETS, DEFAULT_STOPS, lookUniforms } from './presets.js';
 import { makeDemo } from './demo.js';
 import { imageLevels, imagePixels } from './shape.js';
 import { encodeWav } from './wav.js';
@@ -711,31 +711,6 @@ relief.onFrame = () => {
 /* ---------------------------------------------------------------- look -- */
 
 /** Shader uniforms for a set of settings: the screen's, or a what-if's. */
-function lookUniforms(s) {
-  return {
-    uBg: s.bg,
-    uShadow: s.shadow,
-    uHighlight: s.highlight,
-    uLine: s.line,
-    uAccent: s.accent,
-    uStops: s.stops,
-    uColorMode: s.colorMode === 'ramp' ? 1 : 0,
-    uAmbient: s.ambient,
-    uFillMix: s.mode === 'lines' ? 0 : 1,
-    uSkirt: s.skirt,
-    uLineW: s.lineWidth,
-    uLineOpacity: s.lineOpacity,
-    uCrestShade: s.crestShade,
-    uCrestLen: s.crestLen,
-    uBaseFade: s.baseFade,
-    uRim: s.rim,
-    uShadowStr: s.shadowStr,
-    uShadowLen: s.shadowLen,
-    uShadowSteps: s.shadowSteps,
-    uFog: s.fog,
-  };
-}
-
 function applyLook() {
   relief.setMode(S.mode);
   relief.setRidges(S.ridges);

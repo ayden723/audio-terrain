@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Landscape - Sound Labs</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0b0d'/%3E%3Cpath d='M1 13l4-6 3 4 2-3 5 5z' fill='%23fff'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/landscape/style.css" />
+    <!-- Covers the page before first paint when arriving through the scanline wipe. -->
+    <script src="/wipe-in.js"></script>
+  </head>
+  <body>
+    <header id="topbar">
+      <a class="brand" href="/" title="Back to Sound Labs">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        <span class="brand-txt">LANDSCAPE</span>
+      </a>
+
+      <label class="field" title="Where the heights come from. Auto uses USGS 3DEP inside the US and Copernicus GLO-30 everywhere else.">
+        <span>Data</span>
+        <select id="source">
+          <option value="auto">Auto</option>
+          <option value="3dep">USGS 3DEP (US, 1-10 m)</option>
+          <option value="copernicus">Copernicus GLO-30 (world, 30 m)</option>
+        </select>
+      </label>
+      <label class="field" title="Grid rows: one sine partial per row, one analysis frame per column. More detail means longer audio.">
+        <span>Detail</span>
+        <select id="detail">
+          <option value="128">128</option>
+          <option value="256">256</option>
+          <option value="384" selected>384</option>
+          <option value="512">512</option>
+          <option value="768">768</option>
+          <option value="1024">1024</option>
+        </select>
+      </label>
+      <label class="field" title="Longer frames put the partials further apart, so they separate more cleanly. Each step doubles the audio length.">
+        <span>Precision</span>
+        <select id="precision">
+          <option value="1">Standard</option>
+          <option value="2">High</option>
+          <option value="4">Max</option>
+        </select>
+      </label>
+      <label class="field" title="Loudness range from the lowest to the highest point. Heights map linearly to decibels inside it.">
+        <span>Range</span>
+        <select id="range">
+          <option value="40">40 dB</option>
+          <option value="50">50 dB</option>
+          <option value="60" selected>60 dB</option>
+          <option value="70">70 dB</option>
+        </select>
+      </label>
+      <label class="check" title="On: the sea (0 m and below) is silent and the lowest land is the quietest sound. Off: the lowest point of the area is the floor, for land below sea level.">
+        <input id="sea" type="checkbox" checked />
+        <span>Sea is silent</span>
+      </label>
+
+      <div class="grow"></div>
+      <span id="estimate"></span>
+      <button id="capture" class="chip">Hear this area</button>
+    </header>
+
+    <main id="panes">
+      <section id="map-pane">
+        <div id="map"></div>
+        <div id="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="pane-tools">
+          <select id="place" title="Jump to a place">
+            <option value="">Places…</option>
+          </select>
+          <select id="basemap" title="Map style">
+            <option value="topo">Topographic</option>
+            <option value="streets">Streets</option>
+          </select>
+          <label class="overlay" title="Lay the sound's map over the real map">
+            <span>Overlay</span>
+            <input id="overlay" type="range" min="0" max="100" value="0" />
+          </label>
+        </div>
+      </section>
+
+      <section id="spec-pane">
+        <div id="stage3d"><canvas id="view3d"></canvas><div id="grain" class="off"></div></div>
+        <canvas id="spec" hidden></canvas>
+        <div id="playhead" hidden></div>
+        <div class="pane-tools">
+          <div class="seg" id="dim">
+            <button data-dim="3d" class="on" title="The sound as a 3D spectrogram: drag to orbit, right-drag to pan, scroll to zoom">3D</button>
+            <button data-dim="2d" title="The sound drawn flat, as a topographic map">Map</button>
+          </div>
+          <div class="seg" role="tablist" id="view">
+            <button data-view="sound" class="on" title="Heights read back out of the audio">From the sound</button>
+            <button data-view="source" title="The elevation data that went in">Source data</button>
+            <button data-view="diff" title="Where the two differ, in metres">Difference</button>
+          </div>
+          <select id="look" class="only3d" title="Look, the same presets as Audio Terrain"></select>
+          <select id="mode" class="only3d" title="Ridges: one ridge per moment of the sound. Surface: one continuous sheet. Lines: outlines only.">
+            <option value="preset">Preset mode</option>
+            <option value="ridges">Ridges</option>
+            <option value="surface">Surface</option>
+            <option value="lines">Lines</option>
+          </select>
+          <select id="ridges" class="only3d" title="How many ridges are drawn along time. The sound is the same either way.">
+            <option value="60">60 ridges</option>
+            <option value="100">100 ridges</option>
+            <option value="140">140 ridges</option>
+            <option value="200">200 ridges</option>
+            <option value="300">300 ridges</option>
+            <option value="all">Every column</option>
+          </select>
+          <select id="vscale" class="only3d" title="Height against ground distance. ×1 is true scale.">
+            <option value="auto">Height: auto</option>
+            <option value="1">Height ×1 (true)</option>
+            <option value="1.5">Height ×1.5</option>
+            <option value="2">Height ×2</option>
+            <option value="3">Height ×3</option>
+            <option value="5">Height ×5</option>
+          </select>
+          <select id="cam" class="only3d" title="Camera">
+            <option value="reference">From the east</option>
+            <option value="low">Low angle</option>
+            <option value="side">From the north</option>
+            <option value="top">Top down (map)</option>
+          </select>
+          <label class="check only3d" title="Slowly orbit the terrain"><input id="orbit" type="checkbox" /><span>Auto move</span></label>
+        </div>
+        <div id="empty">
+          <div class="big">Frame an area on the map</div>
+          <div class="sub">then press <b>Hear this area</b></div>
+        </div>
+        <div id="busy" hidden>
+          <div class="lbl">Working…</div>
+          <div class="bar"><i></i></div>
+        </div>
+      </section>
+    </main>
+
+    <footer id="transport">
+      <button id="play" title="Play / pause (space)" disabled>
+        <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z" /></svg>
+        <svg viewBox="0 0 24 24" class="i-pause"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" /></svg>
+      </button>
+      <span id="tcur" class="t">0:00</span>
+      <input id="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek" disabled />
+      <span id="tdur" class="t">0:00</span>
+      <button id="wav" class="chip ghost" disabled>Save WAV</button>
+      <div id="stats"></div>
+    </footer>
+
+    <div id="toast" hidden></div>
+    <script type="module" src="/src/landscape/main.js"></script>
+  </body>
+</html>
