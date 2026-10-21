@@ -251,6 +251,7 @@ body { background: transparent; }
 
 .tile-terrain { background: #C25A22; color: #ffe4d2; }  /* deep orange */
 .tile-ripples { background: #1B4868; color: #d3ecff; }  /* deep water blue */
+.tile-landscape { background: #3E5B34; color: #e2f0d6; }  /* forest green */
 
 /* ==========================================
    FOOTER
@@ -292,6 +293,7 @@ body { background: transparent; }
 .tool-card { animation: rise .6s ease backwards; }
 .tools-grid a:nth-child(1) { animation-delay: .22s; }
 .tools-grid a:nth-child(2) { animation-delay: .30s; }
+.tools-grid a:nth-child(3) { animation-delay: .38s; }
 .site-footer { animation: rise .6s ease .62s both; }
 
 @media (prefers-reduced-motion: reduce) {

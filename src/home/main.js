@@ -11,6 +11,10 @@ const open = dissolve(card);
 scramble(card.querySelector('.tool-footer span'), card);
 wipeLink(card, open);
 
+const land = document.querySelector('.tile-landscape');
+scramble(land.querySelector('.tool-footer span'), land);
+wipeLink(land);
+
 // absent while Ripples is hidden (see SHOW_RIPPLES in vite.config.js)
 const pool = document.querySelector('.tile-ripples');
 if (pool) {
