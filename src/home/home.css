@@ -215,6 +215,14 @@ body { background: transparent; }
   width: 100%;
   height: 100%;
 }
+/* Contour reveal (contours.js): the green drains away band by band. */
+.card-cover {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+}
 .card-cells {
   position: absolute;
   inset: 0;
