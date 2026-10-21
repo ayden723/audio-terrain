@@ -1,6 +1,6 @@
-# Netlify security headers — applied to every file on the site.
-# (The Content-Security-Policy lives in index.html's <meta> tag so it also
-#  works when served from anywhere else, e.g. local testing.)
+# Security headers, applied to every file on the site (Cloudflare reads this
+# file from the built assets). The Content-Security-Policy lives in index.html's
+# <meta> tag so it also works when served from anywhere else, e.g. local testing.
 /*
   X-Frame-Options: DENY
   Content-Security-Policy: frame-ancestors 'none'
