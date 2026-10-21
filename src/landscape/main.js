@@ -147,12 +147,13 @@ map.on('moveend', () => {
   markStale();
 });
 
-// The frame: an inset rectangle in the map pane, clear of the tools on top.
+// The frame: an inset rectangle in the map, clear of the zoom buttons on the
+// right and the scale bar along the bottom.
 function frameRect() {
-  const pane = $('map-pane');
-  const w = pane.clientWidth;
-  const h = pane.clientHeight;
-  const m = { l: 24, r: 24, t: 52, b: 36 };
+  const el = $('map');
+  const w = el.clientWidth;
+  const h = el.clientHeight;
+  const m = { l: 20, r: 52, t: 20, b: 36 };
   return { x: m.l, y: m.t, w: Math.max(40, w - m.l - m.r), h: Math.max(40, h - m.t - m.b) };
 }
 function layoutFrame() {
@@ -395,11 +396,12 @@ function showStats() {
   const fine = a.source === 'copernicus' && cell < 30 ? ' (finer than the 30 m data, so interpolated)' : '';
   const credit = a.source === 'mixed' ? `${CREDITS['3dep']} ${CREDITS.copernicus}` : CREDITS[a.source] || '';
   const misread = r.stats.misread ? ` · <b>${r.stats.misread.toLocaleString()}</b> cells misread as sea / land` : '';
+  $('stats').classList.remove('idle');
   $('stats').innerHTML =
-    `Round trip, sound vs. data: <b>${r.stats.rms.toFixed(2)} m</b> RMS · 99% within <b>${r.stats.p99.toFixed(1)} m</b> · worst <b>${r.stats.max.toFixed(1)} m</b>${misread}` +
-    ` &nbsp;|&nbsp; ${a.label} · ${fmtM(cell)} cells${fine} · ${Math.round(r.lo).toLocaleString()}–${Math.round(r.hi).toLocaleString()} m · contours every ${r.step} m` +
-    ` · ${Math.round(r.plan.hz(0))}–${Math.round(r.plan.hz(a.rows - 1)).toLocaleString()} Hz` +
-    `<br><span class="attr">${credit}</span>`;
+    `<div class="acc"><span class="k">Round trip</span> <b>${r.stats.rms.toFixed(2)} m</b> RMS · 99% within <b>${r.stats.p99.toFixed(1)} m</b> · worst <b>${r.stats.max.toFixed(1)} m</b>${misread}</div>` +
+    `<div class="meta">${a.label} · ${fmtM(cell)} cells${fine} · ${Math.round(r.lo).toLocaleString()}–${Math.round(r.hi).toLocaleString()} m · contours every ${r.step} m` +
+    ` · ${Math.round(r.plan.hz(0))}–${Math.round(r.plan.hz(a.rows - 1)).toLocaleString()} Hz</div>` +
+    `<div class="attr" title="${credit}">${credit || '&nbsp;'}</div>`;
 }
 
 /* --------------------------------------------------------- spectrogram -- */
@@ -426,7 +428,7 @@ function drawSpec() {
   if (!result) { plot = null; return; }
 
   const { rows, cols } = result.area;
-  const m = { l: 62, r: 16, t: 52, b: 44 };
+  const m = { l: 62, r: 16, t: 20, b: 44 };
   const aw = Math.max(10, W - m.l - m.r);
   const ah = Math.max(10, H - m.t - m.b);
   const s = Math.min(aw / cols, ah / rows);
