@@ -1,5 +1,6 @@
 import './bg.js';
 import { dissolve } from './dissolve.js';
+import { contours } from './contours.js';
 import { waves } from './waves.js';
 import { scramble } from '../shared/scramble.js';
 import { wipeIn, wipeLink } from '../shared/wipe.js';
@@ -12,8 +13,9 @@ scramble(card.querySelector('.tool-footer span'), card);
 wipeLink(card, open);
 
 const land = document.querySelector('.tile-landscape');
+const drain = contours(land);
 scramble(land.querySelector('.tool-footer span'), land);
-wipeLink(land);
+wipeLink(land, drain);
 
 // absent while Ripples is hidden (see SHOW_RIPPLES in vite.config.js)
 const pool = document.querySelector('.tile-ripples');
@@ -24,4 +26,8 @@ if (pool) {
 }
 
 // Back from a tool via the browser cache: show the card as it was.
-window.addEventListener('pageshow', (e) => { if (e.persisted) card.classList.remove('is-open'); });
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted) return;
+  card.classList.remove('is-open');
+  drain.reset();
+});
