@@ -3,8 +3,8 @@
 A 3D spectrogram built for looks rather than measurement: layered ridges of sound
 rendered as terrain you can orbit, in the style of an old plotted relief map.
 It is part of **Sound Labs**: the home page at `/` (with the animated background)
-links to the tools: this spectrogram at `/terrain/`, [Landscape](#landscape) at
-`/landscape/` and [Ripples](#ripples) at `/ripples/`.
+links to the tools: this spectrogram at `/terrain/` and [Landscape](#landscape) at
+`/landscape/`.
 
 ## Running it
 
@@ -207,35 +207,6 @@ Credits: USGS 3D Elevation Program; Copernicus WorldDEM-30 © DLR e.V.
 COPERNICUS by the European Union and ESA; basemaps by OpenTopoMap and
 OpenFreeMap, map data © OpenStreetMap contributors.
 
-## Ripples
-
-> **Hidden for now.** `SHOW_RIPPLES` in `vite.config.js` is `false`, so the
-> build leaves out both `/ripples/` and its card on the home page. Nothing is
-> deleted; set it to `true` to bring both back. (`npm run dev` still serves
-> `/ripples/` locally either way.)
-
-`/ripples/` is the second tool on the home page: a dark synth played from the
-computer keyboard, over a round pool that answers it. It is kept small so
-anything you play sounds good together:
-
-- **A S D F G** play five chords of the current key, a progression that works
-  in any order (Dm, B♭, F, C, Gm in D minor), voiced close together over a bass
-  note so moving between them is smooth.
-- **H J K L ;** play the five notes of the key's pentatonic scale, which fit
-  over every one of those chords.
-- Left and right arrows change key; the panel switches between a minor and a
-  major mood. The on-screen keycaps play too, for touch screens.
-- Each chord drops a stone and retunes the eight buoys to its notes, so the
-  ripples echo the chord as an arpeggio, quieter, as they pass each buoy.
-
-The synth (`src/ripples/synth.js`) is detuned sawtooths through a low-pass
-whose envelope opens on each attack, with gentle saturation on the summed bus,
-a clean sub under the bass note and an optional soft thump. Everything is
-synthesised; there are no samples. The water is a 2D wave equation on the CPU (`sim.js`); the light on
-the floor (`pool.js`) uses Evan Wallace's caustics method, as in Amanda
-Ghassaei's gpu-io wave2d example, run once per colour channel so the light
-splits into fringes.
-
 ## Controls worth knowing
 
 Most controls live under **Advanced**; the panel itself keeps only the ones that
@@ -274,8 +245,7 @@ Three things keep a full-length song workable:
 A 4-minute track measures ~11s to load, analyse and draw, holding 49-62fps.
 
 - `index.html`, `src/home/` — the Sound Labs home page: animated background,
-  the Audio Terrain card's pixel dissolve and the Ripples card's rings
-- `ripples/index.html`, `src/ripples/` — Ripples
+  the Audio Terrain card's pixel dissolve and the Landscape card's contours
 - `landscape/index.html`, `src/landscape/` — Landscape: `dem.js` (elevation),
   `dsp.js` (matched synthesis and analysis), `render.js` (topographic drawing),
   `main.js` (map, pipeline, playback)
