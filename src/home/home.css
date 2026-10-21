@@ -258,7 +258,6 @@ body { background: transparent; }
 }
 
 .tile-terrain { background: #C25A22; color: #ffe4d2; }  /* deep orange */
-.tile-ripples { background: #1B4868; color: #d3ecff; }  /* deep water blue */
 .tile-landscape { background: #3E5B34; color: #e2f0d6; }  /* forest green */
 
 /* ==========================================
