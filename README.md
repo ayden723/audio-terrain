@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173 for the home page, or http://localhost:5173/terrain/
+Then open http://localhost:5184 for the home page, or http://localhost:5184/terrain/
 for the spectrogram.
 
 ## Deploying
@@ -232,6 +232,12 @@ makes the waterfall cheap — scrolling is one uniform instead of re-uploading t
 mesh — and it lets the drawn ridge count differ from the analysis resolution,
 with smooth interpolation between slices.
 
+The mesh itself is one strip, drawn once per ridge (instanced), so changing the
+ridge count is a draw count rather than a new mesh. The ridges are drawn nearest
+first, which lets the depth test skip the hidden ones before they are shaded,
+and a frame is only drawn when something changed: a still terrain costs the
+graphics card nothing.
+
 Three things keep a full-length song workable:
 
 - **Time resolution is automatic.** The full view never analyses more detail than
@@ -242,19 +248,23 @@ Three things keep a full-length song workable:
   slider never blurs millions of cells on the main thread, and nothing large is
   copied between threads.
 
-A 4-minute track measures ~11s to load, analyse and draw, holding 49-62fps.
+A 4-minute track measures about 3s to load, analyse and draw, and orbits at
+60fps on integrated graphics.
 
 - `index.html`, `src/home/` — the Sound Labs home page: animated background,
   the Audio Terrain card's pixel dissolve and the Landscape card's contours
 - `landscape/index.html`, `src/landscape/` — Landscape: `dem.js` (elevation),
-  `dsp.js` (matched synthesis and analysis), `render.js` (topographic drawing),
-  `main.js` (map, pipeline, playback)
+  `geo.js` (Web Mercator arithmetic), `dsp.js` (matched synthesis and analysis),
+  `render.js` (topographic drawing), `sound.worker.js` (runs those three off the
+  main thread), `main.js` (map, playback)
 - `worker/index.js` — the Copernicus tile pass-through
-- `src/shared/` — the level-meter label scramble and the scanline wipe between pages
+- `src/shared/` — what both tools use: the FFT (`fft.js`), the frequency axis
+  (`freq.js`), small helpers (`util.js`), the level-meter label scramble and the
+  scanline wipe between pages
 - `public/wipe-in.js` — covers a page before first paint when it is reached through the wipe
 - `terrain/index.html` — the spectrogram page
 - `public/_headers` — security headers applied to every response
-- `src/analysis.worker.js` — FFT, multi-resolution STFT, additive synthesis
+- `src/analysis.worker.js` — multi-resolution STFT, shaping, additive synthesis
 - `src/relief.js` — Three.js scene, geometry and the relief shader
 - `src/live.js` — live capture and the real-time dual-analyser spectrum
 - `src/shape.js` — image sampling (canvas-bound, so it stays on the main thread)

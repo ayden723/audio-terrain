@@ -10,20 +10,10 @@
 //   Worker (worker/index.js; the Vite dev server proxies the same path).
 
 import { fromArrayBuffer, fromUrl } from 'geotiff';
+import { mercToLon, mercToLat } from './geo.js';
 
-const R_EARTH = 6378137;
-const DEG = Math.PI / 180;
-
-export const mercToLon = (x) => (x / R_EARTH) / DEG;
-export const mercToLat = (y) => Math.atan(Math.sinh(y / R_EARTH)) / DEG;
-export const lonToMerc = (lon) => lon * DEG * R_EARTH;
-export const latToMerc = (lat) => R_EARTH * Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2));
-
-/** Ground metres per grid cell on a given row (Mercator stretches by 1/cos(lat)). */
-export function cellMetres(box, rows, y) {
-  const ym = box.maxY - ((y + 0.5) / rows) * (box.maxY - box.minY);
-  return ((box.maxY - box.minY) / rows) * Math.cos(mercToLat(ym) * DEG);
-}
+/** Let the page breathe: long loops hand the thread back every so often. */
+const breathe = () => new Promise((resolve) => setTimeout(resolve));
 
 // Rough boxes around 3DEP coverage: CONUS, Alaska, Hawaii, Puerto Rico.
 const US = [
@@ -32,7 +22,7 @@ const US = [
   [-160.6, 18.8, -154.7, 22.3],
   [-67.3, 17.8, -65.2, 18.6],
 ];
-export function inUS(lon, lat) {
+function inUS(lon, lat) {
   return US.some(([a, b, c, d]) => lon >= a && lon <= c && lat >= b && lat <= d);
 }
 
@@ -138,25 +128,33 @@ const wy = new Float64Array(4);
  * or a pit the data doesn't have.
  */
 function sampleTile(t, lat, lon) {
-  const fx = Math.min(t.ww - 1, Math.max(0, (lon - t.lon) / t.dx - t.off - t.x0));
-  const fy = Math.min(t.wh - 1, Math.max(0, (t.lat + 1 - lat) / t.dy - t.off - t.y0));
-  const ix = Math.min(t.ww - 2, Math.floor(fx));
-  const iy = Math.min(t.wh - 2, Math.floor(fy));
-  if (ix < 0 || iy < 0) return t.data[0];
-  const d = t.data;
-  const at = (x, y) => d[Math.min(t.wh - 1, Math.max(0, y)) * t.ww + Math.min(t.ww - 1, Math.max(0, x))];
+  const { ww, wh, data: d } = t;
+  const fx = Math.min(ww - 1, Math.max(0, (lon - t.lon) / t.dx - t.off - t.x0));
+  const fy = Math.min(wh - 1, Math.max(0, (t.lat + 1 - lat) / t.dy - t.off - t.y0));
+  const ix = Math.min(ww - 2, Math.floor(fx));
+  const iy = Math.min(wh - 2, Math.floor(fy));
+  if (ix < 0 || iy < 0) return d[0];
   cubic(fx - ix, wx);
   cubic(fy - iy, wy);
+  // the four columns around the sample, clamped to the window
+  const x0 = Math.max(0, ix - 1);
+  const x1 = ix;
+  const x2 = ix + 1;
+  const x3 = Math.min(ww - 1, ix + 2);
   let v = 0;
   for (let j = 0; j < 4; j++) {
+    const r = Math.min(wh - 1, Math.max(0, iy - 1 + j)) * ww;
     let row = 0;
-    for (let i = 0; i < 4; i++) row += wx[i] * at(ix - 1 + i, iy - 1 + j);
+    row += wx[0] * d[r + x0];
+    row += wx[1] * d[r + x1];
+    row += wx[2] * d[r + x2];
+    row += wx[3] * d[r + x3];
     v += wy[j] * row;
   }
-  const a = at(ix, iy);
-  const b = at(ix + 1, iy);
-  const c = at(ix, iy + 1);
-  const e = at(ix + 1, iy + 1);
+  const a = d[iy * ww + ix];
+  const b = d[iy * ww + ix + 1];
+  const c = d[(iy + 1) * ww + ix];
+  const e = d[(iy + 1) * ww + ix + 1];
   return Math.min(Math.max(a, b, c, e), Math.max(Math.min(a, b, c, e), v));
 }
 
@@ -181,25 +179,54 @@ async function fetchCopernicus(box, rows, cols, signal, onProgress) {
       })
     )
   );
-  const byKey = new Map();
-  jobs.forEach(([la, lo], i) => byKey.set(`${la},${lo}`, tiles[i]));
+  // tiles by whole degree, as a small grid rather than a lookup by name
+  const la0 = Math.floor(south);
+  const lo0 = Math.floor(west);
+  const nLa = Math.floor(north - 1e-12) - la0 + 1;
+  const nLo = Math.floor(east - 1e-12) - lo0 + 1;
+  const grid = new Array(Math.max(0, nLa * nLo)).fill(null);
+  jobs.forEach(([la, lo], i) => { grid[(la - la0) * nLo + (lo - lo0)] = tiles[i]; });
+  if (!tiles.some(Boolean)) return new Float32Array(rows * cols); // open ocean: no tiles at all
 
-  // 2x2 supersampling per cell keeps detail finer than the grid from aliasing
-  const out = new Float32Array(rows * cols);
+  // 2x2 supersampling per cell keeps detail finer than the grid from aliasing.
+  // The grid is square in Mercator, so every row shares its latitudes and every
+  // column its longitudes: work them out once instead of once per sample.
   const sx = (box.maxX - box.minX) / cols;
   const sy = (box.maxY - box.minY) / rows;
+  const lons = new Float64Array(cols * 2);
+  const lats = new Float64Array(rows * 2);
+  for (let x = 0; x < cols; x++) {
+    for (let s = 0; s < 2; s++) lons[x * 2 + s] = mercToLon(box.minX + (x + 0.25 + 0.5 * s) * sx);
+  }
+  for (let y = 0; y < rows; y++) {
+    for (let s = 0; s < 2; s++) lats[y * 2 + s] = mercToLat(box.maxY - (y + 0.25 + 0.5 * s) * sy);
+  }
+  const tileCol = new Int32Array(cols * 2);
+  for (let i = 0; i < tileCol.length; i++) {
+    const c = Math.floor(lons[i]) - lo0;
+    tileCol[i] = c >= 0 && c < nLo ? c : -1;
+  }
+
+  const out = new Float32Array(rows * cols);
+  let last = performance.now();
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       let sum = 0;
       for (let s = 0; s < 4; s++) {
-        const mx = box.minX + (x + 0.25 + 0.5 * (s & 1)) * sx;
-        const my = box.maxY - (y + 0.25 + 0.5 * (s >> 1)) * sy;
-        const lat = mercToLat(my);
-        const lon = mercToLon(mx);
-        const t = byKey.get(`${Math.floor(lat)},${Math.floor(lon)}`);
+        const lat = lats[y * 2 + (s >> 1)];
+        const lon = lons[x * 2 + (s & 1)];
+        const r = Math.floor(lat) - la0;
+        const c = tileCol[x * 2 + (s & 1)];
+        const t = r >= 0 && r < nLa && c >= 0 ? grid[r * nLo + c] : null;
         sum += t ? sampleTile(t, lat, lon) : 0;
       }
       out[y * cols + x] = sum / 4;
+    }
+    // a big grid is a second or two of arithmetic: don't freeze the page for it
+    if (performance.now() - last > 30) {
+      await breathe();
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      last = performance.now();
     }
   }
   return out;
@@ -224,7 +251,16 @@ export async function loadDem(box, rows, cols, source, { signal, onStatus } = {}
   }
 
   onStatus?.('Reading USGS 3DEP…');
-  const heights = await fetch3dep(box, rows, cols, signal);
+  let heights;
+  try {
+    heights = await fetch3dep(box, rows, cols, signal);
+  } catch (err) {
+    // Auto still has the world dataset to fall back on when USGS is down
+    if (source !== 'auto' || err.name === 'AbortError') throw err;
+    onStatus?.('USGS 3DEP is not answering. Reading Copernicus GLO-30…');
+    const fallback = await fetchCopernicus(box, rows, cols, signal);
+    return { heights: fallback, source: 'copernicus', label: 'Copernicus GLO-30 (30 m; USGS 3DEP was unavailable)' };
+  }
   if (source === '3dep') return { heights, source: '3dep', label: 'USGS 3DEP' };
 
   let zeros = 0;

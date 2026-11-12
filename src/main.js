@@ -4,9 +4,10 @@ import { PRESETS, DEFAULT_STOPS, lookUniforms } from './presets.js';
 import { makeDemo } from './demo.js';
 import { imageLevels, imagePixels } from './shape.js';
 import { encodeWav } from './wav.js';
-import { LiveInput } from './live.js';
+import { LiveInput, FLOOR_DB } from './live.js';
 import { scramble } from './shared/scramble.js';
 import { wipeIn, wipeLink } from './shared/wipe.js';
+import { fmtTime, saveBlob } from './shared/util.js';
 import { initExplain } from './explain.js';
 
 wipeIn();
@@ -61,7 +62,12 @@ const S = {
 // Taken before anything mutates S, so Reset always has a true baseline.
 const DEFAULTS = structuredClone(S);
 
-const src = { kind: null, name: '', bitmap: null, audioBuffer: null, wavBlob: null, duration: 0 };
+const src = { kind: null, name: '', bitmap: null, aspect: 1, audioBuffer: null, wavBlob: null, duration: 0 };
+// Bumped whenever the source changes. Analysis, synthesis and decoding all take
+// a while; a result that comes back for a source that has since been replaced
+// is dropped instead of being drawn over the new one.
+let srcGen = 0;
+let loadTicket = 0;
 const live = new LiveInput();
 let dataDims = null; // { slices, cols } of whatever matrix the worker is holding
 
@@ -94,11 +100,10 @@ const setProgress = (v) => {
 
 const showEmpty = (show) => { $('empty').hidden = !show; };
 
-function fmtTime(t) {
-  if (!isFinite(t) || t < 0) t = 0;
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+/** An image holds decoded pixels until it is closed, so the old one is let go here. */
+function setBitmap(bitmap) {
+  if (src.bitmap && src.bitmap !== bitmap) src.bitmap.close();
+  src.bitmap = bitmap;
 }
 
 /* -------------------------------------------------------------- worker -- */
@@ -154,6 +159,7 @@ async function requestAnalysis() {
   if (!src.audioBuffer) return;
   if (analyzing) { analyzeQueued = true; return; }
   analyzing = true;
+  const gen = srcGen;
   setBusy(true, 'Analysing…');
   try {
     const r = await call(
@@ -164,10 +170,11 @@ async function requestAnalysis() {
         if (m.size) $('loading').querySelector('.lbl').textContent = `Analysing · ${m.size}-point FFT`;
       }
     );
+    if (gen !== srcGen) return; // the source changed while this ran
     dataDims = { slices: r.slices, cols: r.cols };
     await applyShape();
   } catch (err) {
-    toast(`Analysis failed: ${err.message}`);
+    if (gen === srcGen) toast(`Analysis failed: ${err.message}`);
   } finally {
     setBusy(false);
     analyzing = false;
@@ -231,7 +238,10 @@ async function applyShape() {
   shaping = true;
   try {
     const r = await call({ type: 'shape', params: shapeParams(S) });
-    relief.setData(r.heights, dataDims.slices, dataDims.cols);
+    if (src.kind === 'live' || !src.kind) return; // switched away while this ran
+    // the worker says what it shaped, which is what the texture has to match
+    dataDims = { slices: r.slices, cols: r.cols };
+    relief.setData(r.heights, r.slices, r.cols);
     if (introPending) { introPending = false; drawIn(); }
   } catch (err) {
     toast(`Shaping failed: ${err.message}`);
@@ -349,8 +359,11 @@ function samplesToBuffer(samples, sampleRate) {
 function loadDemo() {
   showEmpty(false);
   const { samples, sampleRate } = makeDemo();
+  endLive();
+  loadTicket++;
+  srcGen++;
   src.kind = 'audio';
-  src.bitmap = null;
+  setBitmap(null);
   src.wavBlob = null;
   src.name = 'demo tone bed';
   $('srcname').textContent = src.name;
@@ -362,12 +375,16 @@ function loadDemo() {
 }
 
 async function loadAudioFile(file) {
+  const ticket = ++loadTicket;
   setBusy(true, `Decoding ${file.name}`);
   try {
     const ab = await file.arrayBuffer();
     const buffer = await ensureCtx().decodeAudioData(ab);
+    if (ticket !== loadTicket) return; // another file was opened meanwhile
+    endLive();
+    srcGen++;
     src.kind = 'audio';
-    src.bitmap = null;
+    setBitmap(null);
     src.wavBlob = null;
     src.name = file.name;
     $('srcname').textContent = `${file.name} · ${fmtTime(buffer.duration)}`;
@@ -378,28 +395,48 @@ async function loadAudioFile(file) {
     introPending = true;
     await requestAnalysis();
   } catch (err) {
+    if (ticket !== loadTicket) return;
     toast(`Could not decode ${file.name}: ${err.message}`);
+    showEmpty(!src.kind); // nothing replaced what was there
   } finally {
     setBusy(false);
   }
 }
 
 async function loadImageFile(file) {
+  const ticket = ++loadTicket;
   setBusy(true, 'Reading image…');
   try {
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    let bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const { width, height } = bitmap;
+    // Nothing here samples an image finer than this, and a phone cannot hold a
+    // 50-megapixel photo plus the scaled copies made from it.
+    const over = Math.max(width, height) / MAX_IMAGE_SIDE;
+    if (over > 1) {
+      const small = await createImageBitmap(bitmap, {
+        resizeWidth: Math.max(1, Math.round(width / over)),
+        resizeHeight: Math.max(1, Math.round(height / over)),
+        resizeQuality: 'high',
+      });
+      bitmap.close();
+      bitmap = small;
+    }
+    if (ticket !== loadTicket) { bitmap.close(); setBusy(false); return; } // another file was opened meanwhile
+    endLive();
     stopPlayback();
     releaseFit();
     fit = { source: 'image', base: { depth: S.depth }, owned: new Set(['depth']) };
+    srcGen++;
     src.kind = 'image';
-    src.bitmap = bitmap;
+    setBitmap(bitmap);
     src.audioBuffer = null;
     src.wavBlob = null;
     src.name = file.name;
     src.duration = 0;
-    $('srcname').textContent = `${file.name} · ${bitmap.width}×${bitmap.height}`;
+    $('srcname').textContent = `${file.name} · ${width}×${height}`;
     // keep the picture's proportions: image height -> frequency (width), image width -> time (depth)
-    S.depth = Math.min(26, Math.max(3, (S.width * bitmap.width) / bitmap.height));
+    src.aspect = width / height; // of the file itself, before any downscaling
+    S.depth = Math.min(26, Math.max(3, (S.width * width) / height));
     relief.setDims({ D: S.depth });
     showImageControls(true);
     updateTransportEnabled();
@@ -407,14 +444,18 @@ async function loadImageFile(file) {
     introPending = true;
     buildImageTerrain();
   } catch (err) {
-    toast(`Could not read image: ${err.message}`);
     setBusy(false);
+    if (ticket !== loadTicket) return;
+    toast(`Could not read image: ${err.message}`);
+    showEmpty(!src.kind); // nothing replaced what was there
     return;
   }
   setBusy(false);
   // an image is always given a voice, so it can be played back straight away
   await synthesize();
 }
+
+const MAX_IMAGE_SIDE = 4096;
 
 function handleFile(file) {
   if (!file) return;
@@ -429,6 +470,7 @@ function handleFile(file) {
 
 async function synthesize() {
   if (!src.bitmap) { toast('Load an image first'); return; }
+  const gen = srcGen;
   setBusy(true, 'Synthesizing audio…');
   try {
     const rows = S.synthRows;
@@ -453,11 +495,12 @@ async function synthesize() {
       [],
       setProgress
     );
+    if (gen !== srcGen) return; // the image was replaced while this ran
     src.wavBlob = encodeWav(r.samples, r.sampleRate);
     adoptAudio(samplesToBuffer(r.samples, r.sampleRate), src.name);
     if (S.terrainFrom === 'Synthesized audio') await requestAnalysis();
   } catch (err) {
-    toast(`Synthesis failed: ${err.message}`);
+    if (gen === srcGen) toast(`Synthesis failed: ${err.message}`);
   } finally {
     setBusy(false);
   }
@@ -465,13 +508,8 @@ async function synthesize() {
 
 function downloadWav() {
   if (!src.wavBlob) { toast('Synthesize the audio first'); return; }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(src.wavBlob);
-  a.download = `${src.name.replace(/\.[^.]+$/, '')}.wav`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  saveBlob(src.wavBlob, `${src.name.replace(/\.[^.]+$/, '')}.wav`);
 }
-
 
 /* ----------------------------------------------------------------- live -- */
 
@@ -542,6 +580,9 @@ function pushLiveColumn() {
   let mx = -200;
   for (let c = 0; c < cols; c++) if (liveSm[c] > mx) mx = liveSm[c];
   liveTop = Math.max(mx, liveTop - 0.06);
+  // With nothing coming in, every column sits on the analyser's floor and the
+  // auto-gain would stretch that floor up to full height. Silence is flat.
+  const silent = mx <= FLOOR_DB + 0.5;
 
   const lo = liveTop - S.range;
   const span = Math.max(1e-6, S.range);
@@ -550,7 +591,8 @@ function pushLiveColumn() {
 
   liveRing.copyWithin(0, cols); // drop the oldest row
   const base = (slices - 1) * cols;
-  for (let c = 0; c < cols; c++) {
+  if (silent) liveRing.fill(0, base, base + cols);
+  else for (let c = 0; c < cols; c++) {
     let h = (liveSm[c] + S.tilt * liveOct[c] - lo) / span;
     h = h < 0 ? 0 : h > 1 ? 1 : h;
     if (cut > 0) h = Math.max(0, (h - cut) / (1 - cut));
@@ -564,9 +606,12 @@ async function startLive(mode, deviceId) {
   try {
     setBusy(true, mode === 'share' ? 'Waiting for you to pick a source...' : 'Requesting microphone...');
     const label = await live.start(mode, deviceId);
+    loadTicket++; // a file still decoding must not take over from the live input
+    srcGen++;
     stopPlayback();
     src.kind = 'live';
-    src.bitmap = null;
+    setBitmap(null);
+    worker.postMessage({ type: 'clear' }); // the file's samples are no longer needed
     src.audioBuffer = null;
     src.wavBlob = null;
     src.duration = 0;
@@ -589,11 +634,17 @@ async function startLive(mode, deviceId) {
   }
 }
 
-function stopLive() {
+/** Let go of the capture device. What the terrain shows next is up to the caller. */
+function endLive() {
   live.stop();
   live.onended = null;
   showLiveControls(false);
+}
+
+function stopLive() {
+  endLive();
   if (src.kind === 'live') {
+    srcGen++;
     src.kind = null;
     src.name = '';
     $('srcname').textContent = 'no source';
@@ -710,7 +761,10 @@ relief.onFrame = () => {
 
 /* ---------------------------------------------------------------- look -- */
 
-/** Shader uniforms for a set of settings: the screen's, or a what-if's. */
+let pageBg = null;
+let pageAccent = null;
+
+/** Push the current look and geometry settings to the renderer and the page. */
 function applyLook() {
   relief.setMode(S.mode);
   relief.setRidges(S.ridges);
@@ -718,12 +772,21 @@ function applyLook() {
   relief.setReverse(S.reverse);
   relief.setLight(S.lightAz, S.lightEl);
   relief.setDims({ W: S.width, H: S.height, D: S.depth });
-  document.documentElement.style.setProperty('--paper', S.bg);
-  document.documentElement.style.setProperty('--accent', S.accent);
-  const c = S.bg.replace('#', '');
-  const lum =
-    (0.2126 * parseInt(c.slice(0, 2), 16) + 0.7152 * parseInt(c.slice(2, 4), 16) + 0.0722 * parseInt(c.slice(4, 6), 16)) / 255;
-  document.documentElement.style.setProperty('--ink', lum > 0.5 ? '#2b2925' : '#efe7d8');
+  // Page colours restyle the whole document, and this runs on every slider
+  // step, so they are only written when they change.
+  const root = document.documentElement.style;
+  if (S.bg !== pageBg) {
+    pageBg = S.bg;
+    root.setProperty('--paper', S.bg);
+    const c = S.bg.replace('#', '');
+    const lum =
+      (0.2126 * parseInt(c.slice(0, 2), 16) + 0.7152 * parseInt(c.slice(2, 4), 16) + 0.0722 * parseInt(c.slice(4, 6), 16)) / 255;
+    root.setProperty('--ink', lum > 0.5 ? '#2b2925' : '#efe7d8');
+  }
+  if (S.accent !== pageAccent) {
+    pageAccent = S.accent;
+    root.setProperty('--accent', S.accent);
+  }
   $('grain').classList.toggle('off', !S.grain);
 }
 
@@ -1087,7 +1150,7 @@ function resetSettings() {
   fit = null;
   if (src.kind === 'image' && src.bitmap) {
     fit = { source: 'image', base: { depth: next.depth }, owned: new Set(['depth']) };
-    next.depth = Math.min(26, Math.max(3, (next.width * src.bitmap.width) / src.bitmap.height));
+    next.depth = Math.min(26, Math.max(3, next.width * src.aspect));
   }
   if (src.kind === 'audio' && src.duration) {
     fit = { source: 'audio', base: pickKeys(next, FIT_KEYS), owned: new Set(FIT_KEYS) };

@@ -2,7 +2,7 @@
 // hillshading from the north-west, and contour lines. Grids are rows x cols,
 // row 0 = north; `water` marks cells that are sea (or silent).
 
-import { cellMetres } from './dem.js';
+import { cellMetres } from './geo.js';
 
 // Classic hypsometric tints, spread over the area's own height range.
 const TINTS = [
@@ -99,49 +99,73 @@ export function contourStep(relief, target = 24) {
   return 10 * p;
 }
 
+/** A growing list of line segments, four numbers (x0, y0, x1, y1) each. */
+class Segments {
+  constructor() {
+    this.data = new Float32Array(4096);
+    this.length = 0;
+  }
+
+  push(x0, y0, x1, y1) {
+    if (this.length + 4 > this.data.length) {
+      const bigger = new Float32Array(this.data.length * 2);
+      bigger.set(this.data);
+      this.data = bigger;
+    }
+    const d = this.data;
+    const n = this.length;
+    d[n] = x0; d[n + 1] = y0; d[n + 2] = x1; d[n + 3] = y1;
+    this.length = n + 4;
+  }
+
+  done() {
+    return this.data.slice(0, this.length);
+  }
+}
+
 /**
  * Contour segments by marching squares, in cell-centre coordinates (cell x
- * spans x..x+1, its centre is x+0.5). Returns [{ index, segs }], where index
- * lines (every fifth) are drawn heavier, as on printed maps.
+ * spans x..x+1, its centre is x+0.5). Returns [{ index, segs }], where segs is
+ * a Float32Array of x0, y0, x1, y1 and index lines (every fifth) are drawn
+ * heavier, as on printed maps.
  */
 export function contours(h, water, rows, cols, step) {
-  const thin = [];
-  const thick = [];
-  const lerp = (a, b, lv) => (lv - a) / (b - a);
+  const thin = new Segments();
+  const thick = new Segments();
   for (let y = 0; y < rows - 1; y++) {
+    const cy = y + 0.5;
     for (let x = 0; x < cols - 1; x++) {
       const i = y * cols + x;
       if (water[i] || water[i + 1] || water[i + cols] || water[i + cols + 1]) continue;
-      const a = h[i];          // top-left
-      const b = h[i + 1];      // top-right
+      const a = h[i];            // top-left
+      const b = h[i + 1];        // top-right
       const c = h[i + cols + 1]; // bottom-right
-      const d = h[i + cols];   // bottom-left
+      const d = h[i + cols];     // bottom-left
       const mn = Math.min(a, b, c, d);
       const mx = Math.max(a, b, c, d);
+      const cx = x + 0.5;
       for (let k = Math.ceil(mn / step); k * step < mx; k++) {
         const lv = k * step;
         const code = (a >= lv ? 8 : 0) | (b >= lv ? 4 : 0) | (c >= lv ? 2 : 0) | (d >= lv ? 1 : 0);
         if (code === 0 || code === 15) continue;
-        const cx = x + 0.5;
-        const cy = y + 0.5;
-        const top = [cx + lerp(a, b, lv), cy];
-        const right = [cx + 1, cy + lerp(b, c, lv)];
-        const bottom = [cx + lerp(d, c, lv), cy + 1];
-        const left = [cx, cy + lerp(a, d, lv)];
         const out = k % 5 === 0 ? thick : thin;
-        const seg = (p, q) => out.push(p[0], p[1], q[0], q[1]);
+        // where the level crosses each side of the cell
+        const topX = cx + (lv - a) / (b - a);
+        const rightY = cy + (lv - b) / (c - b);
+        const bottomX = cx + (lv - d) / (c - d);
+        const leftY = cy + (lv - a) / (d - a);
         switch (code) {
-          case 1: case 14: seg(left, bottom); break;
-          case 2: case 13: seg(bottom, right); break;
-          case 3: case 12: seg(left, right); break;
-          case 4: case 11: seg(top, right); break;
-          case 6: case 9: seg(top, bottom); break;
-          case 7: case 8: seg(left, top); break;
-          case 5: seg(left, top); seg(bottom, right); break;
-          case 10: seg(top, right); seg(left, bottom); break;
+          case 1: case 14: out.push(cx, leftY, bottomX, cy + 1); break;
+          case 2: case 13: out.push(bottomX, cy + 1, cx + 1, rightY); break;
+          case 3: case 12: out.push(cx, leftY, cx + 1, rightY); break;
+          case 4: case 11: out.push(topX, cy, cx + 1, rightY); break;
+          case 6: case 9: out.push(topX, cy, bottomX, cy + 1); break;
+          case 7: case 8: out.push(cx, leftY, topX, cy); break;
+          case 5: out.push(cx, leftY, topX, cy); out.push(bottomX, cy + 1, cx + 1, rightY); break;
+          case 10: out.push(topX, cy, cx + 1, rightY); out.push(cx, leftY, bottomX, cy + 1); break;
         }
       }
     }
   }
-  return [{ index: false, segs: thin }, { index: true, segs: thick }];
+  return [{ index: false, segs: thin.done() }, { index: true, segs: thick.done() }];
 }
