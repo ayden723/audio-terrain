@@ -1,6 +1,9 @@
 // Multi-resolution STFT analysis + additive image-to-audio synthesis.
 // Everything here runs off the main thread.
 
+import { fft } from './shared/fft.js';
+import { freqMap, bandAxis, columnMap, sizeBlend } from './shared/freq.js';
+
 const QUALITY = {
   standard: { sizes: [4096], overlap: 4 },
   high: { sizes: [2048, 8192], overlap: 4 },
@@ -10,6 +13,8 @@ const MAX_FRAMES_PER_SIZE = 100000;
 // Averaging more than a handful of frames per slice is visually indistinguishable
 // but scales the cost linearly, which is what made long songs slow.
 const MAX_FRAMES_PER_SLICE = 10;
+// Empty bins come out at -300 dB; nothing real, however quiet, gets near this.
+const SILENCE_DB = -200;
 
 let audio = null; // { samples: Float32Array, sampleRate }
 let data = null;  // { values: Float32Array, slices, cols, freqs, isDb }
@@ -18,66 +23,9 @@ let data = null;  // { values: Float32Array, slices, cols, freqs, isDb }
 let specimen = null;
 const specimenCache = new Map();
 
-/* ---------------------------------------------------------------- FFT ---- */
+/* ------------------------------------------------------------- window --- */
 
-class FFT {
-  constructor(n) {
-    this.n = n;
-    this.levels = Math.log2(n) | 0;
-    this.cos = new Float64Array(n / 2);
-    this.sin = new Float64Array(n / 2);
-    for (let i = 0; i < n / 2; i++) {
-      this.cos[i] = Math.cos((2 * Math.PI * i) / n);
-      this.sin[i] = Math.sin((2 * Math.PI * i) / n);
-    }
-    this.rev = new Uint32Array(n);
-    for (let i = 0; i < n; i++) {
-      let x = i;
-      let r = 0;
-      for (let b = 0; b < this.levels; b++) {
-        r = (r << 1) | (x & 1);
-        x >>= 1;
-      }
-      this.rev[i] = r;
-    }
-  }
-
-  // In-place complex forward transform.
-  transform(re, im) {
-    const { n, rev, cos, sin } = this;
-    for (let i = 0; i < n; i++) {
-      const j = rev[i];
-      if (j > i) {
-        let t = re[i]; re[i] = re[j]; re[j] = t;
-        t = im[i]; im[i] = im[j]; im[j] = t;
-      }
-    }
-    for (let size = 2; size <= n; size <<= 1) {
-      const half = size >> 1;
-      const step = n / size;
-      for (let i = 0; i < n; i += size) {
-        for (let j = 0, k = 0; j < half; j++, k += step) {
-          const l = i + j + half;
-          const tre = re[l] * cos[k] + im[l] * sin[k];
-          const tim = im[l] * cos[k] - re[l] * sin[k];
-          re[l] = re[i + j] - tre;
-          im[l] = im[i + j] - tim;
-          re[i + j] += tre;
-          im[i + j] += tim;
-        }
-      }
-    }
-  }
-}
-
-const fftCache = new Map();
 const winCache = new Map();
-
-function getFFT(n) {
-  let f = fftCache.get(n);
-  if (!f) { f = new FFT(n); fftCache.set(n, f); }
-  return f;
-}
 
 // Blackman-Harris: very low sidelobes, so the noise floor stays clean.
 function getWindow(n) {
@@ -96,46 +44,6 @@ function getWindow(n) {
     winCache.set(n, w);
   }
   return w;
-}
-
-/* -------------------------------------------------------- frequency map -- */
-
-function freqMap(scale, fmin, fmax) {
-  if (scale === 'linear') return (u) => fmin + (fmax - fmin) * u;
-  if (scale === 'mel') {
-    const m = (f) => 2595 * Math.log10(1 + f / 700);
-    const m0 = m(fmin);
-    const m1 = m(fmax);
-    return (u) => 700 * (Math.pow(10, (m0 + (m1 - m0) * u) / 2595) - 1);
-  }
-  const r = fmax / fmin;
-  return (u) => fmin * Math.pow(r, u);
-}
-
-/** For one FFT size, how each output column reads the spectrum. */
-function columnMap(N, sr, edges, centers, cols) {
-  const binw = sr / N;
-  const nb = N >> 1;
-  const lo = new Int32Array(cols);
-  const hi = new Int32Array(cols);
-  const frac = new Float32Array(cols);
-  for (let c = 0; c < cols; c++) {
-    const a = edges[c] / binw;
-    const b = edges[c + 1] / binw;
-    const i0 = Math.ceil(a);
-    const i1 = Math.floor(b);
-    if (i1 >= i0 && i1 >= 0 && i0 <= nb) {
-      lo[c] = Math.max(0, i0);
-      hi[c] = Math.min(nb, i1);
-      frac[c] = -1; // band average
-    } else {
-      const x = Math.min(nb - 1, Math.max(0, centers[c] / binw));
-      lo[c] = Math.floor(x);
-      hi[c] = Math.min(nb, lo[c] + 1);
-      frac[c] = x - lo[c]; // interpolate
-    }
-  }
-  return { lo, hi, frac };
 }
 
 function fillFrame(dst, samples, start, win, N) {
@@ -168,14 +76,7 @@ function analyze(source, p, id) {
   const { samples, sampleRate: sr } = source;
   const slices = Math.max(2, p.slices | 0);
   const cols = Math.max(8, p.cols | 0);
-  const fmax = Math.min(p.fmax, sr * 0.4975);
-  const fmin = Math.max(2, Math.min(p.fmin, fmax * 0.5));
-  const toF = freqMap(p.scale, fmin, fmax);
-
-  const edges = new Float64Array(cols + 1);
-  for (let c = 0; c <= cols; c++) edges[c] = toF(c / cols);
-  const centers = new Float32Array(cols);
-  for (let c = 0; c < cols; c++) centers[c] = toF((c + 0.5) / cols);
+  const { edges, centers } = bandAxis(cols, p.scale, p.fmin, p.fmax, sr);
 
   const q = QUALITY[p.quality] || QUALITY.high;
   const L = samples.length / slices;
@@ -195,7 +96,6 @@ function analyze(source, p, id) {
   const results = [];
   for (const plan of plans) {
     const { N, m, map } = plan;
-    const fft = getFFT(N);
     const win = getWindow(N);
     const norm = N / (win.sum * win.sum);
     const re = new Float64Array(N);
@@ -216,7 +116,7 @@ function analyze(source, p, id) {
         if (paired) fillFrame(im, samples, Math.round(s0 + ((j + 1.5) * L) / m - N / 2), win.arr, N);
         else im.fill(0);
 
-        fft.transform(re, im);
+        fft(re, im);
 
         // Two real frames packed into one complex transform.
         for (let b = 0; b <= nb; b++) {
@@ -249,27 +149,12 @@ function analyze(source, p, id) {
   // Blend the resolutions: wide FFTs where columns are narrow (low frequencies),
   // short FFTs where columns are wide (high frequencies).
   const db = new Float32Array(slices * cols);
-  const log2s = plans.map((pl) => Math.log2(pl.N));
+  const blend = sizeBlend(q.sizes, sr, edges, cols);
   for (let c = 0; c < cols; c++) {
-    const bw = Math.max(1e-6, edges[c + 1] - edges[c]);
-    const ideal = Math.log2((2 * sr) / bw);
-    let i0 = 0;
-    let i1 = 0;
-    let t = 0;
-    if (ideal >= log2s[log2s.length - 1]) {
-      i0 = i1 = log2s.length - 1;
-    } else if (ideal > log2s[0]) {
-      for (let i = 0; i < log2s.length - 1; i++) {
-        if (ideal >= log2s[i] && ideal <= log2s[i + 1]) {
-          i0 = i;
-          i1 = i + 1;
-          t = (ideal - log2s[i]) / (log2s[i + 1] - log2s[i]);
-          break;
-        }
-      }
-    }
+    const i0 = Math.floor(blend[c]);
+    const t = blend[c] - i0;
     const A = results[i0];
-    const B = results[i1];
+    const B = results[Math.min(results.length - 1, i0 + 1)];
     for (let k = 0; k < slices; k++) {
       const idx = k * cols + c;
       db[idx] = A[idx] * (1 - t) + B[idx] * t;
@@ -434,7 +319,7 @@ function percentile(a, p) {
 function shapeHeights(d, p) {
   if (!d) throw new Error('nothing to shape yet');
   const { slices, cols, isDb } = d;
-  const a = Float32Array.from(d.values);
+  const a = d.values.slice();
 
   if (isDb && p.tilt && d.freqs) {
     for (let c = 0; c < cols; c++) {
@@ -448,7 +333,16 @@ function shapeHeights(d, p) {
   let lo = 0;
   let span = 1;
   if (isDb) {
-    lo = percentile(a, 0.995) - p.range;
+    let top = percentile(a, 0.995);
+    // Digital silence has no loudest part to measure the rest against: it would
+    // all sit at the reference level and draw as one full-height slab. A file
+    // that is silent but for a blip is measured against the blip instead.
+    if (top < SILENCE_DB) {
+      top = -Infinity;
+      for (let i = 0; i < a.length; i++) if (a[i] > top) top = a[i];
+      if (top < SILENCE_DB) return new Float32Array(a.length);
+    }
+    lo = top - p.range;
     span = Math.max(1e-6, p.range);
   }
 
@@ -473,6 +367,12 @@ self.onmessage = (e) => {
       audio = { samples: m.samples, sampleRate: m.sampleRate };
       return;
     }
+    if (m.type === 'clear') {
+      // the source went away (live input took over): let its samples go
+      audio = null;
+      data = null;
+      return;
+    }
     if (m.type === 'analyze') {
       if (!audio) throw new Error('no audio loaded');
       data = analyze(audio, m.params, m.id);
@@ -485,7 +385,8 @@ self.onmessage = (e) => {
     }
     if (m.type === 'shape') {
       const heights = shapeHeights(data, m.params);
-      self.postMessage({ type: 'heights', id: m.id, heights }, [heights.buffer]);
+      // sized by the matrix they came from, which may be newer than the caller thinks
+      self.postMessage({ type: 'heights', id: m.id, heights, slices: data.slices, cols: data.cols }, [heights.buffer]);
       return;
     }
     if (m.type === 'setSpecimen') {

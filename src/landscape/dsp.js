@@ -16,9 +16,9 @@
 // every N samples, so it is built with one inverse FFT per column instead of
 // one oscillator per row.
 
-import { fft } from './fft.js';
+import { fft } from '../shared/fft.js';
 
-export const SAMPLE_RATE = 48000;
+const SAMPLE_RATE = 48000;
 const MIN_HZ = 40;       // lowest partial
 const TOP = 0.45;        // highest partial, as a fraction of the sample rate (21.6 kHz)
 
@@ -158,20 +158,25 @@ export function synthesize(p, amps, onProgress) {
   const out = new Float32Array(total);
   let cur = new Float64Array(n);
   let next = new Float64Array(n);
+  // the crossfade is the same for every column, and n is a power of two
+  const fades = new Float64Array(n);
+  for (let j = 0; j < n; j++) fades[j] = fade(j / n);
+  const mask = n - 1;
   period(0, cur);
   // hold the first column up to its centre
-  for (let i = 0; i < n / 2; i++) out[i] = cur[i % n];
+  for (let i = 0; i < n / 2; i++) out[i] = cur[i];
   for (let c = 0; c < cols; c++) {
     const t0 = centre(c, n);
     if (c === cols - 1) {
-      for (let i = t0; i < total; i++) out[i] = cur[i % n];
+      for (let i = t0; i < total; i++) out[i] = cur[i & mask];
       break;
     }
     period(c + 1, next);
     for (let j = 0; j < n; j++) {
       const i = t0 + j;
-      const g = fade(j / n);
-      out[i] = g * cur[i % n] + (1 - g) * next[i % n];
+      const g = fades[j];
+      const k = i & mask;
+      out[i] = g * cur[k] + (1 - g) * next[k];
     }
     [cur, next] = [next, cur];
     if (onProgress && (c & 31) === 0) onProgress(c / cols);

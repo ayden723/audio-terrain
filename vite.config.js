@@ -14,11 +14,11 @@ const copernicus = {
   },
 };
 
-// The harness assigns a port via PORT; with none set Vite picks its own default
-// and steps to the next free one if that is taken.
+// The harness assigns a port via PORT; with none set the dev server uses this
+// project's own port rather than Vite's shared default.
 export default defineConfig({
   server: {
-    port: process.env.PORT ? Number(process.env.PORT) : undefined,
+    port: Number(process.env.PORT) || 5184,
     open: false,
     proxy: copernicus,
   },

@@ -2,10 +2,10 @@
 // draw the map back from that sound.
 //
 // Pipeline: frame -> Web Mercator box -> elevation grid in metres (dem.js) ->
-// heights mapped linearly to decibels -> matched synthesis, then analysis of
-// the very audio that plays (dsp.js, in a worker) -> decibels mapped back to
-// metres -> drawn as a topographic map (render.js), with the round-trip error
-// measured against the source.
+// then, all in sound.worker.js: heights mapped linearly to decibels -> matched
+// synthesis, then analysis of the very audio that plays (dsp.js) -> decibels
+// mapped back to metres -> drawn as a topographic map (render.js), with the
+// round-trip error measured against the source.
 //
 // Axes: time runs west -> east, frequency south (low) -> north (high), so the
 // spectrogram reads like the map, north up.
@@ -16,14 +16,15 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // it over as a Vite worker (a plain ?url import gets Vite's page client
 // injected in development, which kills the worker).
 import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import { loadDem, lonToMerc, latToMerc, mercToLon, mercToLat, cellMetres } from './dem.js';
+import { loadDem } from './dem.js';
+import { lonToMerc, latToMerc, mercToLon, mercToLat, cellMetres } from './geo.js';
 import { plan } from './dsp.js';
-import { reliefPixels, diffPixels, contours, contourStep } from './render.js';
 import { Relief } from '../relief.js';
 import { PRESETS, DEFAULT_STOPS, lookUniforms } from '../presets.js';
 import { encodeWav } from '../wav.js';
 import { scramble } from '../shared/scramble.js';
 import { wipeIn } from '../shared/wipe.js';
+import { fmtTime, saveBlob } from '../shared/util.js';
 
 wipeIn();
 
@@ -176,7 +177,6 @@ function gridSize() {
   return { rows, cols };
 }
 
-const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const fmtM = (m) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km` : `${m >= 10 ? Math.round(m) : m.toFixed(1)} m`);
 
 function updateEstimate() {
@@ -212,6 +212,8 @@ function toast(msg) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 6000);
 }
 
+const FETCH_TIMEOUT = 60000;
+
 const areaKey = (box, rows, cols, source) => [box.minX, box.minY, box.maxX, box.maxY, rows, cols, source].map(String).join('|');
 
 function markStale() {
@@ -228,11 +230,14 @@ async function capture() {
   if (area && area.key === key) return voice();
 
   abort?.abort();
-  abort = new AbortController();
-  const signal = abort.signal;
+  const mine = (abort = new AbortController());
+  const signal = mine.signal;
   const id = ++jobId;
   stop();
   busy('Reading elevation…', 0);
+  // an elevation server that never answers would otherwise leave this spinning
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; mine.abort(); }, FETCH_TIMEOUT);
   try {
     const dem = await loadDem(box, rows, cols, S.source, { signal, onStatus: (s) => busy(s, 0.05) });
     if (id !== jobId) return;
@@ -240,135 +245,88 @@ async function capture() {
     $('capture').classList.remove('stale');
     await voice();
   } catch (err) {
-    if (err.name === 'AbortError' || id !== jobId) return;
+    if (id !== jobId) return;
+    if (err.name === 'AbortError' && !timedOut) return;
     busy(null);
-    toast(`Could not read elevation: ${err.message}`);
+    if (timedOut) toast('The elevation data took too long to arrive. Check your connection, or try a smaller area or less detail.');
+    else if (navigator.onLine === false) toast('Could not read elevation: you appear to be offline.');
+    else toast(`Could not read elevation: ${err.message}`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-function runWorker(rows, cols, precision, amps) {
+function runWorker(job) {
   const id = ++jobId;
   return new Promise((resolve, reject) => {
     const onMsg = (e) => {
       const m = e.data;
       if (m.id !== id) return;
       if (m.type === 'progress') {
-        busy(`${m.stage}…`, m.stage === 'Synthesizing' ? 0.1 + 0.6 * m.f : 0.7 + 0.3 * m.f);
+        // only the newest job gets to move the bar
+        if (id === jobId) busy(`${m.stage}…`, STAGES[m.stage][0] + STAGES[m.stage][1] * m.f);
         return;
       }
       worker.removeEventListener('message', onMsg);
-      if (m.type === 'done') resolve(m);
-      else reject(new Error(m.message));
+      if (m.type === 'error') reject(new Error(m.message));
+      else resolve(m);
     };
     worker.addEventListener('message', onMsg);
-    worker.postMessage({ id, rows, cols, precision, amps }, [amps.buffer]);
+    worker.postMessage({ id, ...job });
   }).then((m) => (id === jobId ? m : null));
 }
+
+// where each stage starts on the progress bar, and how much of it it fills
+const STAGES = { Synthesizing: [0.1, 0.5], 'Analysing the audio': [0.6, 0.25], 'Drawing the map': [0.85, 0.15] };
+
+// One voicing at a time. Changing a setting while one runs queues a single
+// re-run with the latest settings, instead of a pile of jobs to wait through.
+let voicing = false;
+let voiceQueued = false;
 
 /** Heights -> sound -> heights, then draw everything. */
 async function voice() {
   if (!area) return;
+  if (voicing) { voiceQueued = true; return; }
+  voicing = true;
+  try {
+    await voiceOnce();
+  } finally {
+    voicing = false;
+    if (voiceQueued) { voiceQueued = false; voice(); }
+  }
+}
+
+async function voiceOnce() {
   stop();
-  const { rows, cols, heights: src } = area;
-  const n = rows * cols;
-  const range = S.range;
-
-  // the floor: lowest land when the sea is silent, else the lowest point
-  const sea = new Uint8Array(n);
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (let i = 0; i < n; i++) {
-    if (S.sea && src[i] <= 0) { sea[i] = 1; continue; }
-    if (src[i] < lo) lo = src[i];
-    if (src[i] > hi) hi = src[i];
-  }
-  if (!(hi >= lo)) {
-    busy(null);
-    toast('This area is all sea, so it would be silent. Move the frame over land, or turn off "Sea is silent".');
-    return;
-  }
-  const span = hi - lo || 1;
-
-  // linear in decibels: lowest -> -range dB, highest -> 0 dB; row 0 = south
-  const amps = new Float32Array(n);
-  for (let y = 0; y < rows; y++) {
-    const r = rows - 1 - y;
-    for (let x = 0; x < cols; x++) {
-      const i = y * cols + x;
-      amps[r * cols + x] = sea[i] ? 0 : Math.pow(10, (-range + (range * (src[i] - lo)) / span) / 20);
-    }
-  }
-
+  const a = area;
+  const { rows, cols } = a;
   const p = plan(rows, cols, S.precision);
   busy('Synthesizing…', 0.1);
   let out;
   try {
-    out = await runWorker(rows, cols, S.precision, amps);
+    out = await runWorker({ rows, cols, precision: S.precision, range: S.range, seaSilent: S.sea, box: a.box, heights: a.heights });
   } catch (err) {
     busy(null);
     toast(`Synthesis failed: ${err.message}`);
     return;
   }
-  if (!out) return;
-
-  // decibels -> metres; anything clearly under the floor is silence
-  const rec = new Float32Array(n);
-  const wet = new Uint8Array(n);
-  for (let y = 0; y < rows; y++) {
-    const r = rows - 1 - y;
-    for (let x = 0; x < cols; x++) {
-      const i = y * cols + x;
-      const db = 20 * Math.log10(out.measured[r * cols + x] + 1e-12);
-      if (db < -range - 6) { wet[i] = 1; rec[i] = lo; continue; }
-      rec[i] = lo + ((db + range) / range) * span;
-    }
+  if (!out) return; // a newer capture took over
+  if (out.type === 'silent') {
+    busy(null);
+    toast('This area is all sea, so it would be silent. Move the frame over land, or turn off "Sea is silent".');
+    return;
   }
 
-  // round-trip error over land both agree on
-  const diff = new Float32Array(n);
-  let se = 0;
-  let count = 0;
-  let max = 0;
-  let misread = 0;
-  const abs = [];
-  for (let i = 0; i < n; i++) {
-    if (sea[i] !== wet[i]) { misread++; continue; }
-    if (sea[i]) continue;
-    const d = rec[i] - src[i];
-    diff[i] = d;
-    se += d * d;
-    count++;
-    max = Math.max(max, Math.abs(d));
-    if ((i & 7) === 0) abs.push(Math.abs(d));
-  }
-  abs.sort((a, b) => a - b);
-  const p99 = abs.length ? abs[Math.floor(abs.length * 0.99)] : 0;
-  const stats = { rms: count ? Math.sqrt(se / count) : 0, max, misread, p99 };
-
-  const both = new Uint8Array(n);
-  for (let i = 0; i < n; i++) both[i] = sea[i] | wet[i];
-  const step = contourStep(span);
   const images = {
-    sound: gridCanvas(reliefPixels(rec, wet, rows, cols, area.box, lo, hi), rows, cols),
-    source: gridCanvas(reliefPixels(src, sea, rows, cols, area.box, lo, hi), rows, cols),
-    diff: gridCanvas(diffPixels(diff, both, rows, cols, Math.max(0.5, p99)), rows, cols),
+    sound: gridCanvas(out.px.sound, rows, cols),
+    source: gridCanvas(out.px.source, rows, cols),
+    diff: gridCanvas(out.px.diff, rows, cols),
   };
-  const lines = {
-    sound: contours(rec, wet, rows, cols, step),
-    source: contours(src, sea, rows, cols, step),
+  result = {
+    plan: p, samples: out.samples, stats: out.stats, lo: out.lo, hi: out.hi, step: out.step,
+    images, lines: out.lines, diffScale: out.diffScale, area: a, h3d: out.h3d,
   };
-
-  // For the 3D view: Relief reads slices (time = map columns, west -> east) of
-  // frequency columns (map rows, south -> north), heights 0..1 over lo..hi.
-  const h3d = new Float32Array(n);
-  for (let x = 0; x < cols; x++) {
-    for (let r = 0; r < rows; r++) {
-      const i = (rows - 1 - r) * cols + x;
-      h3d[x * rows + r] = wet[i] ? 0 : Math.min(1, Math.max(0, (rec[i] - lo) / span));
-    }
-  }
-
-  result = { plan: p, samples: out.samples, stats, lo, hi, step, images, lines, diffScale: Math.max(0.5, p99), area, h3d };
   audioBuffer = null;
   position = 0;
   busy(null);
@@ -416,6 +374,7 @@ function niceStep(raw) {
 }
 
 function drawSpec() {
+  if (S.dim !== '2d') return; // hidden: setDim draws it when it is shown
   const cv = $('spec');
   const dpr = window.devicePixelRatio || 1;
   const W = cv.clientWidth;
@@ -597,6 +556,7 @@ function setDim(dim) {
 /* -------------------------------------------------------- map overlay -- */
 
 let overlayUrl = null;
+let overlayFor = null; // the result the overlay image was made from
 
 function boxCorners(box) {
   const w = mercToLon(box.minX);
@@ -609,7 +569,7 @@ function boxCorners(box) {
 // isStyleLoaded() is also false while tiles are still loading, so just try
 // and, if the style isn't ready, come back once the map settles.
 function addOverlayLayers() {
-  if (!result || !overlayUrl) return;
+  if (!result) return;
   try {
     addLayers();
   } catch {
@@ -618,12 +578,22 @@ function addOverlayLayers() {
 }
 
 function addLayers() {
-  const coordinates = boxCorners(result.area.box);
-  if (map.getSource('sound')) {
-    map.getSource('sound').updateImage({ url: overlayUrl, coordinates });
-  } else {
-    map.addSource('sound', { type: 'image', url: overlayUrl, coordinates });
-    map.addLayer({ id: 'sound', type: 'raster', source: 'sound', paint: { 'raster-opacity': S.overlay / 100, 'raster-resampling': 'nearest', 'raster-fade-duration': 0 } });
+  if (overlayUrl && overlayFor === result) {
+    const coordinates = boxCorners(result.area.box);
+    if (map.getSource('sound')) {
+      map.getSource('sound').updateImage({ url: overlayUrl, coordinates });
+      map.setPaintProperty('sound', 'raster-opacity', S.overlay / 100);
+    } else {
+      map.addSource('sound', { type: 'image', url: overlayUrl, coordinates });
+      // under the playhead line, if that is already there
+      map.addLayer(
+        { id: 'sound', type: 'raster', source: 'sound', paint: { 'raster-opacity': S.overlay / 100, 'raster-resampling': 'nearest', 'raster-fade-duration': 0 } },
+        map.getLayer('playhead') ? 'playhead' : undefined
+      );
+    }
+  } else if (map.getLayer('sound')) {
+    // an image of some earlier area: keep it out of sight until it is redrawn
+    map.setPaintProperty('sound', 'raster-opacity', 0);
   }
   if (!map.getSource('playhead')) {
     map.addSource('playhead', { type: 'geojson', data: playheadLine() });
@@ -631,17 +601,24 @@ function addLayers() {
   }
 }
 
-/** The sound's own map, with contours, as an image laid over the real one. */
+/**
+ * The sound's own map, with contours, as an image laid over the real one. At
+ * an overlay strength of 0 nothing would show, so the image is only made once
+ * the slider is moved.
+ */
 function updateOverlay() {
-  const { rows, cols } = result.area;
+  if (!result) return;
+  if (S.overlay === 0 || overlayFor === result) { addOverlayLayers(); return; }
+  const made = result;
+  const { rows, cols } = made.area;
   const k = Math.max(1, Math.min(4, Math.floor(2048 / Math.max(rows, cols))));
   const c = document.createElement('canvas');
   c.width = cols * k;
   c.height = rows * k;
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
-  g.drawImage(result.images.sound, 0, 0, c.width, c.height);
-  for (const set of result.lines.sound) {
+  g.drawImage(made.images.sound, 0, 0, c.width, c.height);
+  for (const set of made.lines.sound) {
     g.strokeStyle = set.index ? 'rgba(92, 56, 30, 0.8)' : 'rgba(92, 56, 30, 0.45)';
     g.lineWidth = set.index ? 1.4 : 0.8;
     g.beginPath();
@@ -653,8 +630,10 @@ function updateOverlay() {
     g.stroke();
   }
   c.toBlob((blob) => {
+    if (!blob || made !== result) return; // a newer result arrived meanwhile
     if (overlayUrl) URL.revokeObjectURL(overlayUrl);
     overlayUrl = URL.createObjectURL(blob);
+    overlayFor = made;
     addOverlayLayers();
   });
 }
@@ -786,7 +765,8 @@ $('overlay').value = String(S.overlay);
 $('overlay').addEventListener('input', () => {
   S.overlay = Number($('overlay').value);
   saveSettings();
-  if (map.getLayer('sound')) map.setPaintProperty('sound', 'raster-opacity', S.overlay / 100);
+  if (result && overlayFor !== result) updateOverlay(); // first move since this result: draw it now
+  else if (map.getLayer('sound')) map.setPaintProperty('sound', 'raster-opacity', S.overlay / 100);
 });
 
 for (const [name] of PLACES) {
@@ -843,11 +823,7 @@ $('wav').addEventListener('click', () => {
   const { box } = result.area;
   const lat = mercToLat((box.minY + box.maxY) / 2).toFixed(3);
   const lon = mercToLon((box.minX + box.maxX) / 2).toFixed(3);
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `landscape_${lat}_${lon}.wav`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  saveBlob(blob, `landscape_${lat}_${lon}.wav`);
 });
 
 window.addEventListener('keydown', (e) => {

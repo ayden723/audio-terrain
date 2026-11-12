@@ -5,45 +5,11 @@
 // bass. That mirrors the multi-resolution STFT the offline path uses, so live
 // terrain looks like file terrain rather than a different instrument.
 
+import { bandAxis, columnMap, sizeBlend } from './shared/freq.js';
+
 const SHORT = 4096;
 const LONG = 16384;
-const FLOOR_DB = -140;
-
-function freqMap(scale, fmin, fmax) {
-  if (scale === 'linear') return (u) => fmin + (fmax - fmin) * u;
-  if (scale === 'mel') {
-    const m = (f) => 2595 * Math.log10(1 + f / 700);
-    const m0 = m(fmin);
-    const m1 = m(fmax);
-    return (u) => 700 * (Math.pow(10, (m0 + (m1 - m0) * u) / 2595) - 1);
-  }
-  const r = fmax / fmin;
-  return (u) => fmin * Math.pow(r, u);
-}
-
-/** How each output column reads one analyser's linear bins. */
-function colMap(N, sr, edges, centers, cols) {
-  const binw = sr / N;
-  const nb = N >> 1;
-  const lo = new Int32Array(cols);
-  const hi = new Int32Array(cols);
-  const frac = new Float32Array(cols);
-  for (let c = 0; c < cols; c++) {
-    const i0 = Math.ceil(edges[c] / binw);
-    const i1 = Math.floor(edges[c + 1] / binw);
-    if (i1 >= i0 && i1 >= 0 && i0 <= nb) {
-      lo[c] = Math.max(0, i0);
-      hi[c] = Math.min(nb - 1, i1);
-      frac[c] = -1;
-    } else {
-      const x = Math.min(nb - 2, Math.max(0, centers[c] / binw));
-      lo[c] = Math.floor(x);
-      hi[c] = Math.min(nb - 1, lo[c] + 1);
-      frac[c] = x - lo[c];
-    }
-  }
-  return { lo, hi, frac };
-}
+export const FLOOR_DB = -140;
 
 function pick(buf, map, c) {
   const { lo, hi, frac } = map;
@@ -153,29 +119,22 @@ export class LiveInput {
     this.stream = null;
     this.nodes = null;
     this.active = false;
+    // nothing is listening any more, so stop the audio clock (start() resumes it)
+    if (this.ctx && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
   }
 
   buildMap(cols, fmin, fmax, scale) {
     if (!this.ctx) return;
     const sr = this.ctx.sampleRate;
-    const hi = Math.min(fmax, sr * 0.4975);
-    const lo = Math.max(2, Math.min(fmin, hi * 0.5));
-    const toF = freqMap(scale, lo, hi);
-
-    const edges = new Float64Array(cols + 1);
-    for (let c = 0; c <= cols; c++) edges[c] = toF(c / cols);
-    const centers = new Float32Array(cols);
-    for (let c = 0; c < cols; c++) centers[c] = toF((c + 0.5) / cols);
-
-    const w = new Float32Array(cols);
-    const l0 = Math.log2(SHORT);
-    const l1 = Math.log2(LONG);
-    for (let c = 0; c < cols; c++) {
-      const bw = Math.max(1e-6, edges[c + 1] - edges[c]);
-      const ideal = Math.log2((2 * sr) / bw);
-      w[c] = ideal <= l0 ? 0 : ideal >= l1 ? 1 : (ideal - l0) / (l1 - l0);
-    }
-    this.map = { short: colMap(SHORT, sr, edges, centers, cols), long: colMap(LONG, sr, edges, centers, cols), w, centers, cols };
+    const { edges, centers } = bandAxis(cols, scale, fmin, fmax, sr);
+    // an AnalyserNode has no Nyquist bin, so its highest is N/2 - 1
+    this.map = {
+      short: columnMap(SHORT, sr, edges, centers, cols, SHORT / 2 - 1),
+      long: columnMap(LONG, sr, edges, centers, cols, LONG / 2 - 1),
+      w: sizeBlend([SHORT, LONG], sr, edges, cols),
+      centers,
+      cols,
+    };
   }
 
   /** Latest spectrum as dB per column, into `out`. */

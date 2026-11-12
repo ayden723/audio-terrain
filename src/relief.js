@@ -14,6 +14,7 @@ uniform float uW, uHt, uD, uReverse, uWinStart, uWinSpan, uSkirt;
 uniform vec3 uLightDir;
 uniform float uShadowStr, uShadowLen, uShadowSteps;
 uniform float uIntro, uIntroNear;
+uniform float uRidges, uInstLast, uRowFlip;
 
 varying vec3 vN, vView;
 varying float vH, vCrest, vY, vV, vDist, vShadow;
@@ -25,7 +26,11 @@ float hAt(vec2 uv) {
 void main() {
   float u = position.x;
   float top = position.y;
-  float v = position.z;
+  // One strip is drawn once per ridge. uRowFlip runs the ridges in the other
+  // order so the nearest is always drawn first (see Relief.orderFor).
+  float k = float(gl_InstanceID);
+  k = mix(k, uInstLast - k, uRowFlip);
+  float v = (k + position.z) / max(uRidges - 1.0, 1.0);
   // Sample texel centres: when ridges and slices line up 1:1, each ridge reads
   // exactly its own slice instead of straddling two, which is what aliased.
   float dv = 0.5 / uDataSize.y + (uWinStart + v * uWinSpan) * (1.0 - 1.0 / uDataSize.y);
@@ -203,6 +208,9 @@ export class Relief {
     this.mode = 'ridges';
     this.tex = null;
     this.mesh = null;
+    this.strips = null;
+    this.dirty = true;   // something changed that the next frame has to draw
+    this.visible = true; // false while the canvas has no size (a hidden pane)
     this.tween = null;
     this.onFrame = null;
     this.viewFlip = false;    // set by the view (timeline flips time)
@@ -227,6 +235,8 @@ export class Relief {
       uD: { value: 6 },
       uReverse: { value: 0 },
       uRidges: { value: 260 },
+      uInstLast: { value: 259 },
+      uRowFlip: { value: 0 },
       uSurface: { value: 0 },
       uBg: { value: new THREE.Color('#cdb697') },
       uShadow: { value: new THREE.Color('#4a4740') },
@@ -287,6 +297,7 @@ export class Relief {
     c.target.copy(target);
     // Give the camera back the moment it is touched, and only ease auto move
     // back in once the user has let go for a moment.
+    c.addEventListener('change', () => { this.dirty = true; });
     c.addEventListener('start', () => { this.userActive = true; this.auto.ramp = 0; });
     c.addEventListener('end', () => {
       this.userActive = false;
@@ -318,8 +329,7 @@ export class Relief {
       this.tex.image.data.set(h);
     }
     this.tex.needsUpdate = true;
-    this.dataSlices = slices;
-    this.dataCols = cols;
+    this.dirty = true;
     if (this.disp.cols !== cols || !this.mesh) {
       this.disp.cols = cols;
       this.rebuild();
@@ -331,14 +341,16 @@ export class Relief {
     n = Math.max(2, Math.round(n));
     if (n === this.disp.ridges) return;
     this.disp.ridges = n;
-    this.uniforms.uRidges.value = n;
-    this.rebuild();
+    this.syncRidges();
   }
 
   /** Visible slice of the data, as normalised start + span. */
   setWindow(start, span) {
-    this.uniforms.uWinStart.value = start;
-    this.uniforms.uWinSpan.value = span;
+    const u = this.uniforms;
+    if (u.uWinStart.value === start && u.uWinSpan.value === span) return;
+    u.uWinStart.value = start;
+    u.uWinSpan.value = span;
+    this.dirty = true;
   }
 
   setMode(mode) {
@@ -347,65 +359,47 @@ export class Relief {
     this.mode = mode;
     this.uniforms.uSurface.value = mode === 'surface' ? 1 : 0;
     this.uniforms.uFillMix.value = mode === 'lines' ? 0 : 1;
+    this.dirty = true;
     if (wasSurface !== (mode === 'surface')) this.rebuild();
   }
 
+  /** The strip only depends on the column count and on ribbons vs sheet. */
   rebuild() {
     if (this.mesh) {
       this.scene.remove(this.mesh);
-      this.mesh.geometry.dispose();
       this.mesh = null;
     }
+    if (this.strips) {
+      disposeStrips(this.strips);
+      this.strips = null;
+    }
     const cols = this.disp.cols;
-    const rows = this.disp.ridges;
     if (!cols || !this.tex) return;
 
-    this.mesh = new THREE.Mesh(this.makeGeometry(rows, cols, this.mode !== 'surface'), this.material);
+    this.strips = makeStrips(cols, this.mode !== 'surface');
+    this.mesh = new THREE.Mesh(this.strips.fwd, this.material);
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
-    this.uniforms.uRidges.value = rows;
+    this.syncRidges();
   }
 
-  /** Ribbons (crest + skirt per ridge) or one joined sheet. */
-  makeGeometry(rows, cols, ridge) {
-    const vpc = ridge ? 2 : 1;
-    const pos = new Float32Array(rows * cols * vpc * 3);
-    let p = 0;
-    for (let k = 0; k < rows; k++) {
-      const v = rows > 1 ? k / (rows - 1) : 0.5;
-      for (let c = 0; c < cols; c++) {
-        const u = cols > 1 ? c / (cols - 1) : 0.5;
-        pos[p++] = u; pos[p++] = 1; pos[p++] = v;            // crest
-        if (ridge) { pos[p++] = u; pos[p++] = 0; pos[p++] = v; } // skirt
-      }
-    }
+  /** Changing the ridge count is a draw count and two uniforms, not a new mesh. */
+  syncRidges() {
+    this.uniforms.uRidges.value = this.disp.ridges;
+    if (this.strips) this.uniforms.uInstLast.value = setRows(this.strips, this.disp.ridges) - 1;
+    this.dirty = true;
+  }
 
-    const quads = ridge ? rows * (cols - 1) : (rows - 1) * (cols - 1);
-    const idx = new Uint32Array(quads * 6);
-    let q = 0;
-    if (ridge) {
-      for (let k = 0; k < rows; k++) {
-        const base = k * cols * 2;
-        for (let c = 0; c < cols - 1; c++) {
-          const a = base + c * 2;
-          idx[q++] = a; idx[q++] = a + 1; idx[q++] = a + 2;
-          idx[q++] = a + 2; idx[q++] = a + 1; idx[q++] = a + 3;
-        }
-      }
-    } else {
-      for (let k = 0; k < rows - 1; k++) {
-        for (let c = 0; c < cols - 1; c++) {
-          const i = k * cols + c;
-          idx[q++] = i; idx[q++] = i + cols; idx[q++] = i + 1;
-          idx[q++] = i + 1; idx[q++] = i + cols; idx[q++] = i + cols + 1;
-        }
-      }
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setIndex(new THREE.BufferAttribute(idx, 1));
-    return geo;
+  /**
+   * Draw order. Nearest first lets the depth test throw hidden ridges away
+   * before they are shaded, which is most of the work in a stack of ribbons;
+   * the picture is the same either way. Rows run along z and columns along x,
+   * so which end is nearer is the sign of the camera's position on each axis.
+   */
+  orderFor(camera, u, mesh, strips) {
+    const highVNear = camera.position.z > 0 !== u.uReverse.value > 0.5;
+    u.uRowFlip.value = highVNear ? 1 : 0;
+    mesh.geometry = camera.position.x > 0 ? strips.rev : strips.fwd;
   }
 
   /* ---------------------------------------------------------- look ----- */
@@ -419,24 +413,32 @@ export class Relief {
         val.forEach((v, i) => uni.value[i] && uni.value[i].set(v));
       } else uni.value = val;
     }
-    if (u === this.uniforms && values.uBg !== undefined) this.renderer.setClearColor(u.uBg.value, 1);
+    if (u === this.uniforms) {
+      this.dirty = true;
+      if (values.uBg !== undefined) this.renderer.setClearColor(u.uBg.value, 1);
+    }
   }
 
   setDims({ W, H, D }) {
     if (W !== undefined) { this.dims.W = W; this.uniforms.uW.value = W; }
     if (H !== undefined) { this.dims.H = H; this.uniforms.uHt.value = H; }
     if (D !== undefined) { this.dims.D = D; this.uniforms.uD.value = D; }
+    this.dirty = true;
   }
 
   setLight(azDeg, elDeg, u = this.uniforms) {
     const az = (azDeg * Math.PI) / 180;
     const el = (elDeg * Math.PI) / 180;
     u.uLightDir.value.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+    if (u === this.uniforms) this.dirty = true;
   }
 
   setPlayhead(v, mode) {
-    this.uniforms.uPlay.value = v;
-    this.uniforms.uPlayMode.value = mode;
+    const u = this.uniforms;
+    if (u.uPlay.value === v && u.uPlayMode.value === mode) return;
+    u.uPlay.value = v;
+    u.uPlayMode.value = mode;
+    this.dirty = true;
   }
 
   setRenderScale(s) {
@@ -530,6 +532,7 @@ export class Relief {
       this.controls.target.copy(tgt);
       this.controls.update();
     }
+    this.dirty = true;
   }
 
   setReverse(on) {
@@ -539,6 +542,7 @@ export class Relief {
 
   applyReverse() {
     this.uniforms.uReverse.value = this.userReverse !== this.viewFlip ? 1 : 0;
+    this.dirty = true;
   }
 
   setAutoMove(on, speed) {
@@ -578,6 +582,7 @@ export class Relief {
     const v1z = this.uniforms.uReverse.value > 0.5 ? -1 : 1;
     this.uniforms.uIntroNear.value = dz * v1z >= 0 ? 1 : 0;
     this.uniforms.uIntro.value = 0;
+    this.dirty = true;
     if (this.intro) this.intro.resolve();
     return new Promise((resolve) => {
       this.intro = { start: performance.now(), duration, resolve, progress: 0 };
@@ -617,11 +622,12 @@ export class Relief {
         scene: new THREE.Scene().add(mesh),
         camera: new THREE.PerspectiveCamera(this.camera.fov, 1, 0.05, 1000),
         target: new THREE.WebGLRenderTarget(sw, sh, { samples: 4 }),
-        geos: new Map(),
+        strips: new Map(),
+        px: null,
         canvas: document.createElement('canvas'),
       };
     }
-    const { uniforms: u, mesh, scene, camera, target, geos } = this.snap;
+    const { uniforms: u, mesh, scene, camera, target, strips } = this.snap;
 
     for (const k in u) copyUniform(u[k], this.uniforms[k].value);
     this.set(o.uniforms, u);
@@ -660,18 +666,19 @@ export class Relief {
     u.uFogFar.value = dist + ext * 0.8;
 
     const cols = Math.min(tex.image.width, SNAP_COLS);
-    const key = `${rows}:${cols}:${ridge}`;
-    let geo = geos.get(key);
-    if (!geo) {
-      if (geos.size >= 4) {
-        const oldest = geos.keys().next().value;
-        geos.get(oldest).dispose();
-        geos.delete(oldest);
+    const key = `${cols}:${ridge}`;
+    let strip = strips.get(key);
+    if (!strip) {
+      if (strips.size >= 4) {
+        const oldest = strips.keys().next().value;
+        disposeStrips(strips.get(oldest));
+        strips.delete(oldest);
       }
-      geo = this.makeGeometry(rows, cols, ridge);
-      geos.set(key, geo);
+      strip = makeStrips(cols, ridge);
+      strips.set(key, strip);
     }
-    mesh.geometry = geo;
+    u.uInstLast.value = setRows(strip, rows) - 1;
+    this.orderFor(camera, u, mesh, strip);
 
     const r = this.renderer;
     if (target.width !== sw || target.height !== sh) target.setSize(sw, sh);
@@ -679,16 +686,20 @@ export class Relief {
     r.setClearColor(u.uBg.value, 1);
     r.clear();
     r.render(scene, camera);
-    const px = new Uint8Array(sw * sh * 4);
+    if (!this.snap.px || this.snap.px.length !== sw * sh * 4) this.snap.px = new Uint8ClampedArray(sw * sh * 4);
+    const px = this.snap.px;
     r.readRenderTargetPixels(target, 0, 0, sw, sh, px);
     r.setRenderTarget(null);
     r.setClearColor(this.uniforms.uBg.value, 1);
     if (o.heights) tex.dispose();
+    this.dirty = true; // the shared renderer was used: draw the screen again
 
     const big = this.snap.canvas;
-    big.width = sw;
-    big.height = sh;
-    big.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), sw, sh), 0, 0);
+    if (big.width !== sw || big.height !== sh) {
+      big.width = sw;
+      big.height = sh;
+    }
+    big.getContext('2d').putImageData(new ImageData(px, sw, sh), 0, 0);
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingQuality = 'high';
     ctx.setTransform(1, 0, 0, -1, 0, h); // GL rows run bottom-up
@@ -700,20 +711,24 @@ export class Relief {
     const el = this.canvas.parentElement;
     const w = Math.max(1, el.clientWidth);
     const h = Math.max(1, el.clientHeight);
+    this.visible = el.clientWidth > 0 && el.clientHeight > 0;
     const pr = Math.min(window.devicePixelRatio || 1, 2) * this.renderScale;
     this.renderer.setPixelRatio(Math.min(pr, 3));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.dirty = true;
   }
 
   frame() {
+    let moving = false;
     if (this.tween) {
       const t = Math.min(1, (performance.now() - this.tween.start) / this.tween.dur);
       const e = easeInOut(t);
       this.camera.position.lerpVectors(this.tween.p0, this.tween.p1, e);
       this.controls.target.lerpVectors(this.tween.t0, this.tween.t1, e);
       if (t >= 1) this.tween = null;
+      moving = true;
     }
 
     const now = performance.now();
@@ -721,15 +736,13 @@ export class Relief {
     this.auto.last = now;
     const canDrift =
       this.auto.on && !this.tween && !this.userActive && now >= this.auto.idleUntil && this.camera.up.y > 0.5;
-    if (canDrift) this.driftCamera(dt);
-    else this.auto.ramp = 0;
+    if (canDrift) {
+      this.driftCamera(dt);
+      moving = true;
+    } else this.auto.ramp = 0;
 
-    this.controls.update();
-
-    const ext = Math.max(this.dims.W, this.dims.D);
-    const dist = this.camera.position.distanceTo(this.controls.target);
-    this.uniforms.uFogNear.value = dist - ext * 0.3;
-    this.uniforms.uFogFar.value = dist + ext * 0.8;
+    // update() says whether the camera moved, damping included
+    if (this.controls.update()) moving = true;
 
     if (this.intro) {
       const p = Math.min(1, (now - this.intro.start) / this.intro.duration);
@@ -739,9 +752,69 @@ export class Relief {
         this.intro.resolve();
         this.intro = null;
       }
+      moving = true;
     }
 
     if (this.onFrame) this.onFrame();
+
+    // A still picture is not drawn again: the canvas keeps the last frame, so an
+    // idle page costs the graphics card nothing.
+    if (!this.visible || !(moving || this.dirty)) return;
+    this.dirty = false;
+
+    const ext = Math.max(this.dims.W, this.dims.D);
+    const dist = this.camera.position.distanceTo(this.controls.target);
+    this.uniforms.uFogNear.value = dist - ext * 0.3;
+    this.uniforms.uFogFar.value = dist + ext * 0.8;
+    if (this.mesh) this.orderFor(this.camera, this.uniforms, this.mesh, this.strips);
     this.renderer.render(this.scene, this.camera);
   }
+}
+
+/**
+ * One strip of the terrain, drawn once per ridge (instanced): a ribbon (crest +
+ * skirt) for Ridges and Lines, or the band between two neighbouring rows for
+ * Surface. `fwd` and `rev` hold the same triangles in opposite order along the
+ * strip, so whichever end is nearer the camera can be drawn first.
+ */
+function makeStrips(cols, ridge) {
+  const pos = new Float32Array(cols * 2 * 3);
+  let p = 0;
+  for (let c = 0; c < cols; c++) {
+    const u = cols > 1 ? c / (cols - 1) : 0.5;
+    pos[p++] = u; pos[p++] = 1; pos[p++] = 0;                // crest of this row
+    if (ridge) { pos[p++] = u; pos[p++] = 0; pos[p++] = 0; } // its skirt
+    else { pos[p++] = u; pos[p++] = 1; pos[p++] = 1; }       // crest of the next row
+  }
+  const quads = Math.max(0, cols - 1);
+  const Index = cols * 2 > 65535 ? Uint32Array : Uint16Array;
+  const fwd = new Index(quads * 6);
+  const rev = new Index(quads * 6);
+  for (let c = 0; c < quads; c++) {
+    const a = c * 2;
+    const tri = [a, a + 1, a + 2, a + 2, a + 1, a + 3];
+    fwd.set(tri, c * 6);
+    rev.set(tri, (quads - 1 - c) * 6);
+  }
+  const position = new THREE.BufferAttribute(pos, 3);
+  const make = (idx) => {
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.setAttribute('position', position);
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    return geo;
+  };
+  return { fwd: make(fwd), rev: make(rev), ridge };
+}
+
+/** Draw `rows` ridges with these strips. Returns how many strips that takes. */
+function setRows(strips, rows) {
+  const n = strips.ridge ? rows : rows - 1;
+  strips.fwd.instanceCount = n;
+  strips.rev.instanceCount = n;
+  return n;
+}
+
+function disposeStrips(strips) {
+  strips.fwd.dispose();
+  strips.rev.dispose();
 }
